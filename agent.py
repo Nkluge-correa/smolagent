@@ -1,9 +1,10 @@
 """
-A simple smolagents agent using DeepSeek as the backend.
+A smolagents agent with pluggable backends (DeepSeek or Mistral).
 
 Usage:
-    python agent.py "I need a report for the time-series data at 'AiresPucrs/time-series-data'. Please train a forecast model to predict the sales for the next 7 days."
-    python agent.py  --no-plan # Use default prompt but skip the planning step (go straight to execution).
+    python agent.py  # Uses Mistral by default with the built-in prompt
+    python agent.py --backend deepseek  # Use DeepSeek instead
+    python agent.py --no-plan  # Skip the planning step (go straight to execution)
 """
 
 import argparse
@@ -29,20 +30,46 @@ load_dotenv()
 # Configuration
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_MODEL_ID = "deepseek/deepseek-v4-flash"
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+MISTRAL_MODEL_ID = "mistral/mistral-small-latest"
+
+API_BASE_DEEPSEEK = "https://api.deepseek.com"
+API_BASE_MISTRAL = "http://131.220.150.238:8080"
 
 if not DEEPSEEK_API_KEY:
-    raise RuntimeError(
-        "DEEPSEEK_API_KEY not found. "
+    print(
+        "Warning: DEEPSEEK_API_KEY not found. "
+        "DeepSeek backend will not be available. "
         "Create a .env file with: DEEPSEEK_API_KEY=your-key-here"
     )
 
+if not MISTRAL_API_KEY:
+    raise RuntimeError(
+        "MISTRAL_API_KEY not found. "
+        "Create a .env file with: MISTRAL_API_KEY=your-key-here"
+    )
 
-# Model (shared by planner and executor, i.e., we use deepseek for both planning and execution)
-model = LiteLLMModel(
-    model_id=DEEPSEEK_MODEL_ID,
-    api_key=DEEPSEEK_API_KEY,
-    api_base="https://api.deepseek.com",
-)
+
+# Backend registry – maps CLI names to LiteLLMModel constructors
+def _build_model(backend: str) -> LiteLLMModel:
+    """Return a LiteLLMModel for the given backend name."""
+    backends = {
+        "deepseek": lambda: LiteLLMModel(
+            model_id=DEEPSEEK_MODEL_ID,
+            api_key=DEEPSEEK_API_KEY,
+            api_base=API_BASE_DEEPSEEK,
+        ),
+        "mistral": lambda: LiteLLMModel(
+            model_id=MISTRAL_MODEL_ID,
+            api_key=MISTRAL_API_KEY,
+            api_base=API_BASE_MISTRAL,
+        ),
+    }
+    if backend not in backends:
+        raise ValueError(
+            f"Unknown backend '{backend}'. Choose from: {', '.join(backends)}"
+        )
+    return backends[backend]()
 
 
 # Planner agent — creates a plan/TODO list before execution, with user approval
@@ -69,27 +96,38 @@ def on_plan_created(memory_step, agent):
             print("Please enter Y or N.")
 
 
-planner = CodeAgent(
-    tools=[
-        download_dataset_from_hub,
-        preprocess_time_series_data,
-        train_xgboost_forecaster,
-        forecast_next_7_days,
-        create_forecast_plot,
-        generate_final_report,
-    ],
-    model=model,
-    additional_authorized_imports=["datasets", "pandas", "numpy", "pickle", "os", "shutil", "datetime"],
-    planning_interval=1000,  # plan on step 1 only; 1000 > max_steps so modulo never fires
-    step_callbacks={PlanningStep: on_plan_created},
-    stream_outputs=True,  # show tokens as they arrive
-    max_steps=15,
-)
+TOOLS = [
+    download_dataset_from_hub,
+    preprocess_time_series_data,
+    train_xgboost_forecaster,
+    forecast_next_7_days,
+    create_forecast_plot,
+    generate_final_report,
+]
+
+AUTHORIZED_IMPORTS = [
+    "datasets", "pandas", "numpy", "pickle", "os", "shutil", "datetime",
+]
+
+
+def _make_code_agent(model: LiteLLMModel, with_planning: bool = True, max_steps: int = 15) -> CodeAgent:
+    """Create a CodeAgent, optionally with planning."""
+    kwargs: dict = dict(
+        tools=TOOLS,
+        model=model,
+        additional_authorized_imports=AUTHORIZED_IMPORTS,
+        stream_outputs=True,
+        max_steps=max_steps,
+    )
+    if with_planning:
+        kwargs["planning_interval"] = 1000  # plan on step 1 only
+        kwargs["step_callbacks"] = {PlanningStep: on_plan_created}
+    return CodeAgent(**kwargs)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="A simple DeepSeek-powered agent",
+        description="A smolagents agent implementation.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -103,24 +141,28 @@ if __name__ == "__main__":
         help="The task for the agent to perform.",
     )
     parser.add_argument(
+        "--backend",
+        choices=["mistral", "deepseek"],
+        default="mistral",
+        help="LLM backend to use (default: %(default)s).",
+    )
+    parser.add_argument(
         "--no-plan",
         action="store_true",
         help="Skip the planning step entirely (run CodeAgent directly).",
     )
     args = parser.parse_args()
 
+    # Build the model for the chosen backend
+    model = _build_model(args.backend)
+    print(f"🤖 Using backend: {args.backend}\n")
+
     # Pick the agent to run
     if args.no_plan:
-        runner = CodeAgent(
-            tools=planner.tools.values(),
-            model=model,
-            additional_authorized_imports=["datasets", "pandas", "numpy", "pickle", "os", "shutil", "datetime"],
-            stream_outputs=True,
-            max_steps=20,
-        )
+        runner = _make_code_agent(model, with_planning=False, max_steps=20)
         print("⚡ Planner skipped — running CodeAgent directly.\n")
     else:
-        runner = planner
+        runner = _make_code_agent(model, with_planning=True, max_steps=15)
 
     try:
         result = runner.run(args.prompt)
