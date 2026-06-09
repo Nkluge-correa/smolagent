@@ -1,8 +1,8 @@
 """
-A smolagents agent with pluggable backends (DeepSeek or Mistral).
+A smolagents agent with pluggable backends (DeepSeek or OPENAI).
 
 Usage:
-    python agent.py  # Uses Mistral by default with the built-in prompt
+    python agent.py  # Uses OPENAI by default with the built-in prompt
     python agent.py --backend deepseek  # Use DeepSeek instead
     python agent.py --no-plan  # Skip the planning step (go straight to execution)
 """
@@ -30,11 +30,11 @@ load_dotenv()
 # Configuration
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 DEEPSEEK_MODEL_ID = "deepseek/deepseek-v4-flash"
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-MISTRAL_MODEL_ID = "mistral/mistral-small-latest"
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_MODEL_ID = "openai/gpt-5.4-mini-2026-03-17"
 
 API_BASE_DEEPSEEK = "https://api.deepseek.com"
-API_BASE_MISTRAL = "http://131.220.150.238:8080"
+API_BASE_OPENAI = "http://131.220.150.238:8080"
 
 if not DEEPSEEK_API_KEY:
     print(
@@ -43,10 +43,10 @@ if not DEEPSEEK_API_KEY:
         "Create a .env file with: DEEPSEEK_API_KEY=your-key-here"
     )
 
-if not MISTRAL_API_KEY:
+if not OPENAI_API_KEY:
     raise RuntimeError(
-        "MISTRAL_API_KEY not found. "
-        "Create a .env file with: MISTRAL_API_KEY=your-key-here"
+        "OPENAI_API_KEY not found. "
+        "Create a .env file with: OPENAI_API_KEY=your-key-here"
     )
 
 
@@ -59,10 +59,10 @@ def _build_model(backend: str) -> LiteLLMModel:
             api_key=DEEPSEEK_API_KEY,
             api_base=API_BASE_DEEPSEEK,
         ),
-        "mistral": lambda: LiteLLMModel(
-            model_id=MISTRAL_MODEL_ID,
-            api_key=MISTRAL_API_KEY,
-            api_base=API_BASE_MISTRAL,
+        "openai": lambda: LiteLLMModel(
+            model_id=OPENAI_MODEL_ID,
+            api_key=OPENAI_API_KEY,
+            api_base=API_BASE_OPENAI,
         ),
     }
     if backend not in backends:
@@ -142,8 +142,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--backend",
-        choices=["mistral", "deepseek"],
-        default="mistral",
+        choices=["openai", "deepseek"],
+        default="openai",
         help="LLM backend to use (default: %(default)s).",
     )
     parser.add_argument(

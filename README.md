@@ -45,6 +45,7 @@ You will need:
 
 - Python **3.10+**
 - A [DeepSeek API key](https://platform.deepseek.com/api_keys)
+- Or just ask Frederik to share the Labs key for OpenAI models.
 
 Then, clone the repository and install the dependencies:
 
@@ -62,13 +63,12 @@ pip install -e .
 
 ### Configuration
 
-You will need to edit/create the `.env` file inside the project root and add your DeepSeek API key:
+You will need to edit/create the `.env` file inside the project root and add your DeepSeek|OpenAI API key:
 
 ```
 DEEPSEEK_API_KEY=sk-your-actual-key-here
+OPENAI_API_KEY=sk-your-actual-key-here
 ```
-
-Get your key at [platform.deepseek.com/api_keys](https://platform.deepseek.com/api_keys).
 
 ## Usage
 
