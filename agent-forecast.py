@@ -1,13 +1,13 @@
 """
-A smolagents agent with pluggable backends (OpenAI or DeepSeek).
+A smolagents agent for sales forecasting.
 
 Usage:
-    python agent.py                           # Uses OpenAI by default with the built-in prompt
-    python agent.py --backend deepseek        # Use DeepSeek instead
-    python agent.py --no-plan                 # Skip the planning step (go straight to execution)
-    python agent.py --max-steps 30            # Allow more steps for complex tasks
-    python agent.py --planning-interval 5     # Re-plan every 5 steps instead of only on step 1
-    python agent.py --no-plan --max-steps 25  # Skip planning but allow more steps
+    python agent-forecast.py                           # Uses OpenAI by default with the built-in prompt
+    python agent-forecast.py --backend deepseek        # Use DeepSeek instead
+    python agent-forecast.py --no-plan                 # Skip the planning step (go straight to execution)
+    python agent-forecast.py --max-steps 30            # Allow more steps for complex tasks
+    python agent-forecast.py --planning-interval 5     # Re-plan every 5 steps instead of only on step 1
+    python agent-forecast.py --no-plan --max-steps 25  # Skip planning but allow more steps
 """
 
 import argparse
@@ -15,10 +15,36 @@ import sys
 
 from utils import load_memory_for_task, make_code_agent, setup_environment
 
+from tools import (
+    create_forecast_plot,
+    download_dataset_from_hub,
+    forecast_next_7_days,
+    generate_final_report,
+    preprocess_time_series_data,
+    read_memory,
+    train_xgboost_forecaster,
+    update_memory
+)
+
+FORECAST_TOOLS = [
+    download_dataset_from_hub,
+    preprocess_time_series_data,
+    train_xgboost_forecaster,
+    forecast_next_7_days,
+    create_forecast_plot,
+    generate_final_report,
+    read_memory,
+    update_memory
+]
+
+FORECAST_IMPORTS = [
+    "datasets", "pandas", "numpy", "pickle", "os", "shutil", "datetime",
+]
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="A smolagents agent implementation.",
+        description="A smolagents sales forecast agent.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
@@ -56,20 +82,22 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    # Load environment variables and create the agent
+    # Load environment
     env = setup_environment()
 
-    # Create the agent with the selected backend and configuration
+    # Build the agent with forecast tools
     runner = make_code_agent(
         env=env,
         backend=args.backend,
         with_planning=not args.no_plan,
         max_steps=args.max_steps,
         planning_interval=args.planning_interval,
+        tools=FORECAST_TOOLS,
+        additional_authorized_imports=FORECAST_IMPORTS,
     )
     print(f"🤖 Using backend: {args.backend}\n")
 
-    # Run the agent on the task, with memory content prepended to the prompt
+    # Run the agent on the task
     try:
         # Always inject persistent memory into the task before running
         task_with_memory = load_memory_for_task(args.prompt)

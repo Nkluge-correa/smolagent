@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "smolagents-nico"
 version = "0.1.0"
-description = "A simple smolagents agent application."
+description = "A simple smolagent application."
 requires-python = ">=3.10"
 dependencies = [
     "smolagents[litellm]>=1.26.0",
@@ -16,6 +16,9 @@ dependencies = [
     "xgboost>=2.0",
     "matplotlib>=3.8",
     "python-dotenv>=1.0",
+    "ddgs>=9.0",
+    "beautifulsoup4>=4.12",
+    "markdownify>=0.4",
 ]
 
 [project.optional-dependencies]

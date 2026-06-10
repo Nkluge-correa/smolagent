@@ -5,8 +5,6 @@ Contents:
     - `load_memory_for_task`        -> Prepend persistent memory content to the task prompt.
     - `EnvConfig`                   -> Dataclass to hold environment configuration loaded from .env.
     - `setup_environment`           -> Load environment variables and return an `EnvConfig` dataclass.
-    - `TOOLS`                       -> List of tool functions that the agent can use.
-    - `AUTHORIZED_IMPORTS`          -> List of Python packages the agent is allowed to import.
     - `_build_model`                -> Internal function to create a LiteLLMModel based on the selected backend and environment config.
     - `on_plan_created`             -> Step callback to display the plan and ask the user to approve or reject it.
     - `remind_memory_on_plan`       -> Step callback to remind the agent to checkpoint memory after planning.
@@ -22,17 +20,9 @@ from smolagents import CodeAgent, FinalAnswerStep, LiteLLMModel, PlanningStep
 from smolagents.utils import AgentError
 
 from tools import (
-    create_forecast_plot,
-    download_dataset_from_hub,
-    forecast_next_7_days,
-    generate_final_report,
     MAX_MEMORY_CHARS,
     MEMORY_FILE,
-    MEMORY_INSTRUCTIONS,
-    preprocess_time_series_data,
-    read_memory,
-    train_xgboost_forecaster,
-    update_memory,
+    MEMORY_INSTRUCTIONS
 )
 
 
@@ -95,22 +85,6 @@ def setup_environment() -> EnvConfig:
         api_base_deepseek="https://api.deepseek.com",
         api_base_openai="http://131.220.150.238:8080",
     )
-
-
-TOOLS = [
-    download_dataset_from_hub,
-    preprocess_time_series_data,
-    train_xgboost_forecaster,
-    forecast_next_7_days,
-    create_forecast_plot,
-    generate_final_report,
-    read_memory,
-    update_memory,
-]
-
-AUTHORIZED_IMPORTS = [
-    "datasets", "pandas", "numpy", "pickle", "os", "shutil", "datetime",
-]
 
 
 def _build_model(env: EnvConfig, backend: str) -> LiteLLMModel:
@@ -187,6 +161,8 @@ def make_code_agent(
     with_planning: bool = True,
     max_steps: int = 15,
     planning_interval: int = 1000,
+    tools: list | None = None,
+    additional_authorized_imports: list[str] | None = None,
 ) -> CodeAgent:
     """Create a fully-configured CodeAgent.
 
@@ -196,13 +172,19 @@ def make_code_agent(
         with_planning:     Whether to include a planning step.
         max_steps:         Maximum steps the agent may take.
         planning_interval: Re-plan every N steps (default 1000 = only on step 1).
+        tools:             Custom tool list.
+        additional_authorized_imports:  Custom import allowlist.
     """
     model = _build_model(env, backend)
 
     kwargs: dict = dict(
-        tools=TOOLS,
+        tools=tools if tools is not None else [],
         model=model,
-        additional_authorized_imports=AUTHORIZED_IMPORTS,
+        additional_authorized_imports=(
+            additional_authorized_imports
+            if additional_authorized_imports is not None
+            else []
+        ),
         stream_outputs=True, # because it looks cooler!
         max_steps=max_steps,
         instructions=MEMORY_INSTRUCTIONS,
