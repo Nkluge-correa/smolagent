@@ -1,3 +1,8 @@
 __pycache__
 .venv
 .env
+MEMORY.md
+data
+model
+plots
+report*

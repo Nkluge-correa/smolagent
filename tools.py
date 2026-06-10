@@ -1,32 +1,107 @@
 """
-Custom tools for the time-series forecasting agent.
+Custom tools for the smolagent.
 
-Tool pipeline:
-  1. download_dataset_from_hub    ->  fetch raw CSV from Hugging Face Hub
-  2. preprocess_time_series_data  ->  clean outliers, engineer features, scale, save
-  3. train_xgboost_forecaster     ->  train XGBoost with cross-validation, save model
-  4. forecast_next_7_days         ->  load model, predict next week, save forecast
-  5. create_forecast_plot         ->  plot historical + forecast data
-  6. generate_final_report        ->  collect all artifacts into a dated report folder
+Contents:
+    `download_dataset_from_hub    ->  fetch raw CSV from Hugging Face Hub
+    `preprocess_time_series_data  ->  clean outliers, engineer features, scale, save
+    `train_xgboost_forecaster     ->  train XGBoost with cross-validation, save model
+    `forecast_next_7_days         ->  load model, predict next week, save forecast
+    `create_forecast_plot         ->  plot historical + forecast data
+    `generate_final_report        ->  collect all artifacts into a dated report folder
 """
 
 import os
 import pickle
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from smolagents import tool
 
+# Persistent memory — configuration constants for the memory tools below 
+# I.e., `read_memory` and `update_memory`
+MEMORY_FILE = Path("MEMORY.md")
+MAX_MEMORY_CHARS = 2500
+
+MEMORY_INSTRUCTIONS = (
+    "## Persistent Memory\n"
+    "You have a persistent memory file at `MEMORY.md` (max "
+    f"{MAX_MEMORY_CHARS} characters) that survives across runs.\n\n"
+    "- **Start of task:** The file's contents are already in your context "
+    "(injected above as 'Persistent Memory'). No need to call `read_memory()` "
+    "unless you need to re-read it mid-task.\n"
+    "- **At every planning checkpoint** (when you see the plan approval step) "
+    "and **at the end of every completed task**, call `update_memory()` to "
+    "persist what you learned, key decisions, errors encountered and their "
+    "fixes, and any patterns worth remembering for future runs.\n"
+    "- Write memory entries in concise markdown. Include a brief summary of "
+    "what was accomplished and any lessons learned.\n"
+)
+
 
 @tool
-def download_dataset_from_hub(dataset_path: str, output_csv: str) -> str:
+def read_memory() -> str:
+    """
+    Reads the current contents of the MEMORY.md persistent memory file.
+    Call this at the START of every task to recall what was learned in
+    previous sessions and avoid repeating past mistakes.
+
+    Returns:
+        The contents of MEMORY.md, or a message indicating it's empty.
+    """
+    if not MEMORY_FILE.exists():
+        return "[MEMORY.md is empty — nothing remembered from previous runs yet.]"
+    content = MEMORY_FILE.read_text().strip()
+    if len(content) > MAX_MEMORY_CHARS:
+        content = content[:MAX_MEMORY_CHARS // 2] + "\n\n... [truncated] ...\n\n" + content[-MAX_MEMORY_CHARS // 2:]
+    return content
+
+
+@tool
+def update_memory(new_entry: str) -> str:
+    """
+    Appends a new entry to the persistent MEMORY.md file.  If the file
+    exceeds 2500 characters, the oldest entries are trimmed from the top
+    so the file stays within the size limit.
+
+    Use this tool:
+      - At the END of every completed task.
+      - After any important discovery, error, or lesson learned.
+      - At every planning interval to checkpoint progress.
+
+    Args:
+        new_entry: The text to append.  Write in markdown.  Include a
+                   timestamp and a concise summary of what was done,
+                   learned, or decided.
+
+    Returns:
+        Confirmation message with the current file size in characters.
+    """
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    existing = MEMORY_FILE.read_text().rstrip() if MEMORY_FILE.exists() else ""
+
+    new_block = f"\n\n## {now}\n{new_entry.strip()}"
+    combined = (existing + new_block).strip()
+
+    # Enforce the size limit — trim oldest content first
+    if len(combined) > MAX_MEMORY_CHARS:
+        combined = "...[older entries trimmed]...\n" + combined[-(MAX_MEMORY_CHARS - 50):]
+
+    MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    MEMORY_FILE.write_text(combined + "\n")
+    return f"Memory updated.  MEMORY.md is now {len(combined)} / {MAX_MEMORY_CHARS} characters."
+
+
+@tool
+def download_dataset_from_hub(dataset_path: str, output_csv: str = "data/raw_sales.csv") -> str:
     """
     Downloads a dataset from the Hugging Face Hub and saves it locally as a CSV file.
+    The output directory (data/) is created automatically if it does not exist.
 
     Args:
         dataset_path: The Hugging Face Hub dataset path (e.g., 'AiresPucrs/time-series-data').
-        output_csv:    The local filename to save the CSV to (e.g., 'data/sales.csv').
+        output_csv:   Where to save the CSV (default: 'data/raw_sales.csv').
 
     Returns:
         A success message with the number of rows saved, or an error message.
@@ -46,7 +121,10 @@ def download_dataset_from_hub(dataset_path: str, output_csv: str) -> str:
 
 
 @tool
-def preprocess_time_series_data(csv_path: str, output_csv: str) -> str:
+def preprocess_time_series_data(
+    csv_path: str = "data/raw_sales.csv",
+    output_csv: str = "data/preprocessed.csv",
+) -> str:
     """
     Preprocesses a raw time-series CSV for XGBoost forecasting:
       - Replaces outliers (> mean + 3*std) with the cap value.
@@ -55,11 +133,13 @@ def preprocess_time_series_data(csv_path: str, output_csv: str) -> str:
       - Creates calendar features (day-of-week, month, quarter, year).
       - One-hot encodes categorical features.
       - Standard-scales numerical features.
-    Saves the preprocessed DataFrame to `output_csv`.
+    Saves the preprocessed DataFrame to `output_csv`. Scaler and metadata
+    files are saved alongside it. The output directory is created
+    automatically — you do NOT need to create it beforehand.
 
     Args:
-        csv_path:   Path to the raw CSV (must have 'dates' and 'sales' columns).
-        output_csv: Path where the preprocessed CSV will be saved.
+        csv_path:   Path to the raw CSV (default: 'data/raw_sales.csv').
+        output_csv: Where to save the preprocessed CSV (default: 'data/preprocessed.csv').
 
     Returns:
         Summary statistics about the preprocessing.
@@ -121,6 +201,7 @@ def preprocess_time_series_data(csv_path: str, output_csv: str) -> str:
 
     # Save scaler and feature metadata for later use
     scaler_path = output_csv.replace(".csv", "_scaler.pkl")
+    Path(output_csv).parent.mkdir(parents=True, exist_ok=True)
     with open(scaler_path, "wb") as f:
         pickle.dump(scaler, f)
 
@@ -150,8 +231,8 @@ def preprocess_time_series_data(csv_path: str, output_csv: str) -> str:
 
 @tool
 def train_xgboost_forecaster(
-    preprocessed_csv: str,
-    model_output_path: str,
+    preprocessed_csv: str = "data/preprocessed.csv",
+    model_output_path: str = "model/forecaster.pkl",
     n_estimators: int = 2000,
     max_depth: int = 6,
     learning_rate: float = 0.03,
@@ -162,11 +243,12 @@ def train_xgboost_forecaster(
 ) -> str:
     """
     Trains an XGBRegressor on preprocessed time-series data using TimeSeriesSplit
-    cross-validation, then saves the model to disk.
+    cross-validation, then saves the model to disk. The output directory (model/) is
+    created automatically if it does not exist.
 
     Args:
-        preprocessed_csv:      Path to the CSV from `preprocess_time_series_data`.
-        model_output_path:     Where to save the trained model (.pkl).
+        preprocessed_csv:      Path to the preprocessed CSV (default: 'data/preprocessed.csv').
+        model_output_path:     Where to save the trained model (default: 'model/forecaster.pkl').
         n_estimators:          Number of boosting rounds (default 2000).
         max_depth:             Maximum tree depth (default 6).
         learning_rate:         Learning rate (default 0.03).
@@ -222,6 +304,7 @@ def train_xgboost_forecaster(
     # Final fit on all data
     model.fit(X, y, eval_set=[(X, y)], verbose=False)
 
+    Path(model_output_path).parent.mkdir(parents=True, exist_ok=True)
     with open(model_output_path, "wb") as f:
         pickle.dump(model, f)
 
@@ -238,20 +321,21 @@ def train_xgboost_forecaster(
 
 @tool
 def forecast_next_7_days(
-    model_path: str,
-    original_csv: str,
-    preprocessed_csv: str,
-    forecast_output_csv: str,
+    model_path: str = "model/forecaster.pkl",
+    original_csv: str = "data/raw_sales.csv",
+    preprocessed_csv: str = "data/preprocessed.csv",
+    forecast_output_csv: str = "data/forecast.csv",
 ) -> str:
     """
     Loads a trained XGBRegressor and generates a 7-day sales forecast,
-    saving the results to a CSV.
+    saving the results to a CSV. The output directory is created (data/)
+    automatically if it does not exist.
 
     Args:
-        model_path:          Path to the trained model (.pkl).
-        original_csv:        Path to the *raw* dataset CSV (with dates + sales).
-        preprocessed_csv:    Path to the preprocessed CSV (for scaler and feature structure).
-        forecast_output_csv: Where to save the 7-day forecast CSV.
+        model_path:          Path to the trained model (default: 'model/forecaster.pkl').
+        original_csv:        Path to the raw dataset CSV (default: 'data/raw_sales.csv').
+        preprocessed_csv:    Path to the preprocessed CSV (default: 'data/preprocessed.csv').
+        forecast_output_csv: Where to save the forecast CSV (default: 'data/forecast.csv').
 
     Returns:
         Forecast summary (predicted sales per day, total, average).
@@ -360,6 +444,7 @@ def forecast_next_7_days(
         sales_series.append(pred)
 
     forecast_df = pd.DataFrame(forecasts)
+    Path(forecast_output_csv).parent.mkdir(parents=True, exist_ok=True)
     forecast_df.to_csv(forecast_output_csv, index=False)
 
     total = forecast_df["sales"].sum()
@@ -376,9 +461,9 @@ def forecast_next_7_days(
 
 @tool
 def create_forecast_plot(
-    original_csv: str,
-    forecast_csv: str,
-    plot_output_path: str,
+    original_csv: str = "data/raw_sales.csv",
+    forecast_csv: str = "data/forecast.csv",
+    plot_output_path: str = "plots/forecast.png",
 ) -> str:
     """
     Creates two matplotlib PNG figures showing the forecast:
@@ -386,11 +471,13 @@ def create_forecast_plot(
     1. **Full view** — entire sales history + 7-day forecast.
     2. **Zoom view** — last 7 days of actuals + 7-day forecast (detail).
 
+    The output directory (plots/) is created automatically if it does 
+    not exist. The zoom view is saved alongside as '*_zoom.png'.
+
     Args:
-        original_csv:    Path to the raw dataset CSV.
-        forecast_csv:    Path to the forecast CSV (from `forecast_next_7_days`).
-        plot_output_path: Base path for the full-view plot (PNG).
-                          The zoom view is saved alongside as '*_zoom.png'.
+        original_csv:     Path to the raw dataset CSV (default: 'data/raw_sales.csv').
+        forecast_csv:     Path to the forecast CSV (default: 'data/forecast.csv').
+        plot_output_path: Path for the full-view plot PNG (default: 'plots/forecast.png').
 
     Returns:
         Confirmation message with both file paths.
@@ -405,7 +492,7 @@ def create_forecast_plot(
 
     forecast = pd.read_csv(forecast_csv, parse_dates=["dates"])
 
-    # ---- Plot 1: Full history + forecast ----
+    # Plot 1: Full history + forecast
     fig1, ax1 = plt.subplots(figsize=(12, 5))
     ax1.plot(raw["dates"], raw["sales"], color="#00b4d8", linewidth=1.0, label="Sales History")
     ax1.plot(forecast["dates"], forecast["sales"], color="#e63946",
@@ -418,10 +505,11 @@ def create_forecast_plot(
     fig1.autofmt_xdate()
     ax1.grid(True, alpha=0.3)
     fig1.tight_layout()
+    Path(plot_output_path).parent.mkdir(parents=True, exist_ok=True)
     fig1.savefig(plot_output_path, dpi=150)
     plt.close(fig1)
 
-    # ---- Plot 2: Zoom — last 7 days + forecast ----
+    # Plot 2: Zoom — last 7 days + forecast
     zoom_path = plot_output_path.replace(".png", "_zoom.png")
     last_actual_date = raw["dates"].max()
     zoom_start = last_actual_date - timedelta(days=6)  # 7 days back
@@ -453,11 +541,11 @@ def create_forecast_plot(
 
 @tool
 def generate_final_report(
-    dataset_csv: str,
-    forecast_csv: str,
-    plot_path: str,
-    model_path: str,
-    preprocessed_csv: str,
+    dataset_csv: str = "data/raw_sales.csv",
+    forecast_csv: str = "data/forecast.csv",
+    plot_path: str = "plots/forecast.png",
+    model_path: str = "model/forecaster.pkl",
+    preprocessed_csv: str = "data/preprocessed.csv",
     report_folder: str = "report",
 ) -> str:
     """
@@ -465,12 +553,12 @@ def generate_final_report(
     with the forecast summary and statistics.
 
     Args:
-        dataset_csv:      Path to the original dataset CSV.
-        forecast_csv:     Path to the forecast CSV.
-        plot_path:        Path to the forecast plot HTML.
-        model_path:       Path to the trained model (.pkl).
-        preprocessed_csv: Path to the preprocessed CSV.
-        report_folder:    Base folder name (default 'report'). A date suffix is
+        dataset_csv:      Path to the original dataset CSV (default: 'data/raw_sales.csv').
+        forecast_csv:     Path to the forecast CSV (default: 'data/forecast.csv').
+        plot_path:        Path to the forecast plot PNG (default: 'plots/forecast.png').
+        model_path:       Path to the trained model (default: 'model/forecaster.pkl').
+        preprocessed_csv: Path to the preprocessed CSV (default: 'data/preprocessed.csv').
+        report_folder:    Base folder name (default: 'report'). A date suffix is
                           appended automatically, e.g., 'report-2026-06-09'.
 
     Returns:
