@@ -600,7 +600,7 @@ def generate_final_report(
         f"**Generated:** {date_str}",
         "",
         "## Dataset",
-        f"- Source: `AiresPucrs/time-series-data`",
+        "- Source: `AiresPucrs/time-series-data`",
         f"- Rows: {len(raw)}",
         f"- Mean sales: {raw['sales'].mean():.2f} Kg",
         f"- Min sales:  {raw['sales'].min():.2f} Kg",
