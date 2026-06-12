@@ -253,7 +253,7 @@ def preprocess_time_series_data(
 def train_xgboost_forecaster(
     preprocessed_csv: str = "data/preprocessed.csv",
     model_output_path: str = "model/forecaster.pkl",
-    n_estimators: int = 2000,
+    n_estimators: int = 1000,
     max_depth: int = 6,
     learning_rate: float = 0.03,
     early_stopping_rounds: int = 80,
@@ -269,7 +269,7 @@ def train_xgboost_forecaster(
     Args:
         preprocessed_csv:      Path to the preprocessed CSV (default: 'data/preprocessed.csv').
         model_output_path:     Where to save the trained model (default: 'model/forecaster.pkl').
-        n_estimators:          Number of boosting rounds (default 2000).
+        n_estimators:          Number of boosting rounds (default 1000).
         max_depth:             Maximum tree depth (default 6).
         learning_rate:         Learning rate (default 0.03).
         early_stopping_rounds: Early stopping patience (default 80).

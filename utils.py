@@ -194,8 +194,9 @@ def make_code_agent(
     tools: list | None = None,
     additional_authorized_imports: list[str] | None = None,
     skill: str | None = None,
+    executor_timeout: int | None = 120,
 ) -> CodeAgent:
-    """Create a fully-configured CodeAgent.
+    """Create a CodeAgent.
 
     Args:
         env:               Environment configuration from setup_environment().
@@ -207,6 +208,9 @@ def make_code_agent(
         additional_authorized_imports:  Custom import allowlist.
         skill:             Optional skill name to load from skills/<name>/SKILL.md
                            and inject into the agent's instructions.
+        executor_timeout:  Max seconds per tool execution step.  smolagents
+                           defaults to 30 s — we raise it to 120 s. Set to None to 
+                           disable the timeout entirely.
     """
     model = _build_model(env, backend)
 
@@ -215,6 +219,11 @@ def make_code_agent(
     if skill:
         skill_content = load_skill(skill)
         instructions_parts.append(f"## Loaded Skill — {skill}\n\n{skill_content}\n")
+        line_count = len(skill_content.splitlines())
+        print(
+            f"📘 Skill '{skill}' loaded "
+            f"({len(skill_content):,} chars, {line_count} lines)"
+        )
     instructions_parts.append(MEMORY_INSTRUCTIONS)
     instructions = "\n\n---\n\n".join(instructions_parts)
 
@@ -229,6 +238,7 @@ def make_code_agent(
         stream_outputs=True,  # because it looks cooler!
         max_steps=max_steps,
         instructions=instructions,
+        executor_kwargs={"timeout_seconds": executor_timeout},
     )
 
     if with_planning:

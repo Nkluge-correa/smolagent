@@ -93,6 +93,13 @@ if __name__ == "__main__":
         default=None,
         help="Name of a skill to load from skills/<name>/SKILL.md (e.g. 'research').",
     )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=120,
+        help="Max seconds per tool execution step (default: 120, smolagents default: 30). "
+        "Use 0 or negative to disable.",
+    )
     args = parser.parse_args()
 
     # Load environment
@@ -108,6 +115,7 @@ if __name__ == "__main__":
         tools=DEEP_RESEARCH_TOOLS,
         additional_authorized_imports=DEEP_RESEARCH_IMPORTS,
         skill=args.skill,
+        executor_timeout=args.timeout if args.timeout > 0 else None,
     )
     print(f"🔍 Deep-research agent  |  backend: {args.backend}\n")
 
