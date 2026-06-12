@@ -10,6 +10,7 @@ Usage:
     python agent-deep.py --backend deepseek "Compare retrieval-augmented generation vs long-context models"
     python agent-deep.py --no-plan "Create a report on the current state of quantum machine learning, skipping the planning step and going straight to execution."
     python agent-deep.py --max-steps 25 --planning-interval 5 "How is CRISPR being used in agricultural biotechnology? Create a report with citations."
+    python agent-deep.py --skill research "Summarise the latest advances in photonic computing."  # Load research skill
 """
 
 import argparse
@@ -86,6 +87,12 @@ if __name__ == "__main__":
         default=1000,
         help="Re‑plan every N steps (default: %(default)s — plan only on step 1).",
     )
+    parser.add_argument(
+        "--skill",
+        type=str,
+        default=None,
+        help="Name of a skill to load from skills/<name>/SKILL.md (e.g. 'research').",
+    )
     args = parser.parse_args()
 
     # Load environment
@@ -100,6 +107,7 @@ if __name__ == "__main__":
         planning_interval=args.planning_interval,
         tools=DEEP_RESEARCH_TOOLS,
         additional_authorized_imports=DEEP_RESEARCH_IMPORTS,
+        skill=args.skill,
     )
     print(f"🔍 Deep-research agent  |  backend: {args.backend}\n")
 

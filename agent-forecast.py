@@ -8,6 +8,7 @@ Usage:
     python agent-forecast.py --max-steps 30            # Allow more steps for complex tasks
     python agent-forecast.py --planning-interval 5     # Re-plan every 5 steps instead of only on step 1
     python agent-forecast.py --no-plan --max-steps 25  # Skip planning but allow more steps
+    python agent-forecast.py --skill forecast          # Load the forecast skill instructions
 """
 
 import argparse
@@ -80,6 +81,12 @@ if __name__ == "__main__":
         default=1000,
         help="Re-plan every N steps (default: %(default)s — plan only on step 1).",
     )
+    parser.add_argument(
+        "--skill",
+        type=str,
+        default=None,
+        help="Name of a skill to load from skills/<name>/SKILL.md (e.g. 'forecast').",
+    )
     args = parser.parse_args()
 
     # Load environment
@@ -94,6 +101,7 @@ if __name__ == "__main__":
         planning_interval=args.planning_interval,
         tools=FORECAST_TOOLS,
         additional_authorized_imports=FORECAST_IMPORTS,
+        skill=args.skill,
     )
     print(f"🤖 Using backend: {args.backend}\n")
 

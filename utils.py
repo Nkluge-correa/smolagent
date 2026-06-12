@@ -2,6 +2,7 @@
 Utility helpers for the smolagent.
 
 Contents:
+    - `load_skill`                  -> Load SKILL.md content from a named skill folder.
     - `load_memory_for_task`        -> Prepend persistent memory content to the task prompt.
     - `EnvConfig`                   -> Dataclass to hold environment configuration loaded from .env.
     - `setup_environment`           -> Load environment variables and return an `EnvConfig` dataclass.
@@ -14,6 +15,7 @@ Contents:
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 from smolagents import CodeAgent, FinalAnswerStep, LiteLLMModel, PlanningStep
@@ -24,6 +26,36 @@ from tools import (
     MEMORY_FILE,
     MEMORY_INSTRUCTIONS
 )
+
+# Directory where skill folders live (e.g., skills/forecast/, skills/research/)
+SKILLS_DIR = Path(__file__).parent / "skills"
+
+
+def load_skill(name: str) -> str:
+    """Load the SKILL.md content for a named skill.
+
+    Args:
+        name: Skill folder name (e.g. 'forecast', 'research').
+
+    Returns:
+        The full text content of the SKILL.md file.
+
+    Raises:
+        FileNotFoundError: If no folder or SKILL.md exists for that name.
+    """
+    skill_path = SKILLS_DIR / name / "SKILL.md"
+    if not skill_path.exists():
+        available = sorted(
+            d.name for d in SKILLS_DIR.iterdir()
+            if d.is_dir() and (d / "SKILL.md").exists()
+        )
+        listing = ", ".join(available) if available else "(none found)"
+        raise FileNotFoundError(
+            f"Skill '{name}' not found. "
+            f"Available skills: {listing}. "
+            f"Looked in: {skill_path}"
+        )
+    return skill_path.read_text().strip()
 
 
 def load_memory_for_task(task: str) -> str:
@@ -163,6 +195,7 @@ def make_code_agent(
     planning_interval: int = 1000,
     tools: list | None = None,
     additional_authorized_imports: list[str] | None = None,
+    skill: str | None = None,
 ) -> CodeAgent:
     """Create a fully-configured CodeAgent.
 
@@ -174,8 +207,20 @@ def make_code_agent(
         planning_interval: Re-plan every N steps (default 1000 = only on step 1).
         tools:             Custom tool list.
         additional_authorized_imports:  Custom import allowlist.
+        skill:             Optional skill name to load from skills/<name>/SKILL.md
+                           and inject into the agent's instructions.
     """
     model = _build_model(env, backend)
+
+    # Build instructions — start with skill content (if any), then memory instructions
+    instructions_parts = []
+    if skill:
+        skill_content = load_skill(skill)
+        instructions_parts.append(
+            f"## Loaded Skill — {skill}\n\n{skill_content}\n"
+        )
+    instructions_parts.append(MEMORY_INSTRUCTIONS)
+    instructions = "\n\n---\n\n".join(instructions_parts)
 
     kwargs: dict = dict(
         tools=tools if tools is not None else [],
@@ -187,7 +232,7 @@ def make_code_agent(
         ),
         stream_outputs=True, # because it looks cooler!
         max_steps=max_steps,
-        instructions=MEMORY_INSTRUCTIONS,
+        instructions=instructions,
     )
 
     if with_planning:

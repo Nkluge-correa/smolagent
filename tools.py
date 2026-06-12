@@ -99,13 +99,14 @@ def update_memory(new_entry: str) -> str:
 
 
 @tool
-def download_dataset_from_hub(dataset_path: str, output_csv: str = "data/raw_sales.csv") -> str:
+def download_dataset_from_hub(dataset_path: str, split: str = "train", output_csv: str = "data/raw_sales.csv") -> str:
     """
     Downloads a dataset from the Hugging Face Hub and saves it locally as a CSV file.
     The output directory (data/) is created automatically if it does not exist.
 
     Args:
         dataset_path: The Hugging Face Hub dataset path (e.g., 'AiresPucrs/time-series-data').
+        split:        The dataset split to load (default: 'train').
         output_csv:   Where to save the CSV (default: 'data/raw_sales.csv').
 
     Returns:
@@ -117,7 +118,7 @@ def download_dataset_from_hub(dataset_path: str, output_csv: str = "data/raw_sal
     os.makedirs(os.path.dirname(output_csv) or ".", exist_ok=True)
 
     try:
-        dataset = load_dataset(dataset_path, split="train")
+        dataset = load_dataset(dataset_path, split=split)
         df = dataset.to_pandas()
         df.to_csv(output_csv, index=False)
         return f"Successfully downloaded '{dataset_path}' ({len(df)} rows) -> saved to '{output_csv}'."
