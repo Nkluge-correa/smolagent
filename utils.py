@@ -21,11 +21,7 @@ from dotenv import load_dotenv
 from smolagents import CodeAgent, FinalAnswerStep, LiteLLMModel, PlanningStep
 from smolagents.utils import AgentError
 
-from tools import (
-    MAX_MEMORY_CHARS,
-    MEMORY_FILE,
-    MEMORY_INSTRUCTIONS
-)
+from tools import MAX_MEMORY_CHARS, MEMORY_FILE, MEMORY_INSTRUCTIONS
 
 # Directory where skill folders live (e.g., skills/forecast/, skills/research/)
 SKILLS_DIR = Path(__file__).parent / "skills"
@@ -46,7 +42,8 @@ def load_skill(name: str) -> str:
     skill_path = SKILLS_DIR / name / "SKILL.md"
     if not skill_path.exists():
         available = sorted(
-            d.name for d in SKILLS_DIR.iterdir()
+            d.name
+            for d in SKILLS_DIR.iterdir()
             if d.is_dir() and (d / "SKILL.md").exists()
         )
         listing = ", ".join(available) if available else "(none found)"
@@ -67,9 +64,9 @@ def load_memory_for_task(task: str) -> str:
         return task
     if len(content) > MAX_MEMORY_CHARS:
         content = (
-            content[:MAX_MEMORY_CHARS // 2]
+            content[: MAX_MEMORY_CHARS // 2]
             + "\n\n... [truncated] ...\n\n"
-            + content[-MAX_MEMORY_CHARS // 2:]
+            + content[-MAX_MEMORY_CHARS // 2 :]
         )
     return (
         f"## Persistent Memory (from MEMORY.md — {len(content)} chars)\n\n"
@@ -78,6 +75,7 @@ def load_memory_for_task(task: str) -> str:
         f"## Current Task\n\n"
         f"{task}"
     )
+
 
 @dataclass
 class EnvConfig:
@@ -148,9 +146,7 @@ def _build_model(env: EnvConfig, backend: str) -> LiteLLMModel:
             api_base=env.api_base_openai,
         )
     else:
-        raise ValueError(
-            f"Unknown backend '{backend}'. Choose from: openai, deepseek"
-        )
+        raise ValueError(f"Unknown backend '{backend}'. Choose from: openai, deepseek")
 
 
 def on_plan_created(memory_step, agent):
@@ -178,7 +174,9 @@ def on_plan_created(memory_step, agent):
 def remind_memory_on_plan(memory_step, agent):
     """After a planning step, remind the agent to checkpoint its state."""
     if isinstance(memory_step, PlanningStep):
-        print("\n🧠  Memory: consider calling `update_memory()` to checkpoint progress.\n")
+        print(
+            "\n🧠  Memory: consider calling `update_memory()` to checkpoint progress.\n"
+        )
 
 
 def remind_memory_on_complete(memory_step, agent):
@@ -216,9 +214,7 @@ def make_code_agent(
     instructions_parts = []
     if skill:
         skill_content = load_skill(skill)
-        instructions_parts.append(
-            f"## Loaded Skill — {skill}\n\n{skill_content}\n"
-        )
+        instructions_parts.append(f"## Loaded Skill — {skill}\n\n{skill_content}\n")
     instructions_parts.append(MEMORY_INSTRUCTIONS)
     instructions = "\n\n---\n\n".join(instructions_parts)
 
@@ -230,7 +226,7 @@ def make_code_agent(
             if additional_authorized_imports is not None
             else []
         ),
-        stream_outputs=True, # because it looks cooler!
+        stream_outputs=True,  # because it looks cooler!
         max_steps=max_steps,
         instructions=instructions,
     )

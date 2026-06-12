@@ -24,7 +24,7 @@ from tools import (
     preprocess_time_series_data,
     read_memory,
     train_xgboost_forecaster,
-    update_memory
+    update_memory,
 )
 
 FORECAST_TOOLS = [
@@ -35,11 +35,17 @@ FORECAST_TOOLS = [
     create_forecast_plot,
     generate_final_report,
     read_memory,
-    update_memory
+    update_memory,
 ]
 
 FORECAST_IMPORTS = [
-    "datasets", "pandas", "numpy", "pickle", "os", "shutil", "datetime",
+    "datasets",
+    "pandas",
+    "numpy",
+    "pickle",
+    "os",
+    "shutil",
+    "datetime",
 ]
 
 
@@ -53,9 +59,9 @@ if __name__ == "__main__":
         "prompt",
         nargs="?",
         default="Download the dataset 'AiresPucrs/time-series-data' from the "
-                "Hugging Face Hub, preprocess it, train an XGBoost forecaster, "
-                "predict the next 7 days of sales, create a plot, and generate "
-                "a final report folder with all artifacts.",
+        "Hugging Face Hub, preprocess it, train an XGBoost forecaster, "
+        "predict the next 7 days of sales, create a plot, and generate "
+        "a final report folder with all artifacts.",
         help="The task for the agent to perform.",
     )
     parser.add_argument(

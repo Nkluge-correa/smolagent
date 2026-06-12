@@ -92,7 +92,7 @@ Both agents use a `MEMORY.md` file that persists across runs (max 2500 character
 
 ## Installation
 
-**Requirements:** 
+**Requirements:**
 
 - Python **3.10+**
 - You'll need at least one of:
@@ -191,4 +191,3 @@ The deep research agent will:
 | `--no-plan`             | Skip the planning step               | off                        |
 | `--max-steps N`         | Max agent steps                      | 15 (forecast) / 20 (deep)  |
 | `--planning-interval N` | Re-plan every N steps                | 1000 (plan only on step 1) |
-

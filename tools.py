@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 from smolagents import tool
 
-# Persistent memory — configuration constants for the memory tools below 
+# Persistent memory — configuration constants for the memory tools below
 # I.e., `read_memory` and `update_memory`
 MEMORY_FILE = Path("MEMORY.md")
 MAX_MEMORY_CHARS = 2500
@@ -59,7 +59,11 @@ def read_memory() -> str:
         return "[MEMORY.md is empty — nothing remembered from previous runs yet.]"
     content = MEMORY_FILE.read_text().strip()
     if len(content) > MAX_MEMORY_CHARS:
-        content = content[:MAX_MEMORY_CHARS // 2] + "\n\n... [truncated] ...\n\n" + content[-MAX_MEMORY_CHARS // 2:]
+        content = (
+            content[: MAX_MEMORY_CHARS // 2]
+            + "\n\n... [truncated] ...\n\n"
+            + content[-MAX_MEMORY_CHARS // 2 :]
+        )
     return content
 
 
@@ -91,7 +95,9 @@ def update_memory(new_entry: str) -> str:
 
     # Enforce the size limit — trim oldest content first
     if len(combined) > MAX_MEMORY_CHARS:
-        combined = "...[older entries trimmed]...\n" + combined[-(MAX_MEMORY_CHARS - 50):]
+        combined = (
+            "...[older entries trimmed]...\n" + combined[-(MAX_MEMORY_CHARS - 50) :]
+        )
 
     MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
     MEMORY_FILE.write_text(combined + "\n")
@@ -99,7 +105,9 @@ def update_memory(new_entry: str) -> str:
 
 
 @tool
-def download_dataset_from_hub(dataset_path: str, split: str = "train", output_csv: str = "data/raw_sales.csv") -> str:
+def download_dataset_from_hub(
+    dataset_path: str, split: str = "train", output_csv: str = "data/raw_sales.csv"
+) -> str:
     """
     Downloads a dataset from the Hugging Face Hub and saves it locally as a CSV file.
     The output directory (data/) is created automatically if it does not exist.
@@ -165,7 +173,7 @@ def preprocess_time_series_data(
     prev = df.sales.shift(1)
     df["difference_1"] = df.sales - prev
     for i in range(1, 7):
-        df[f"difference_{i+1}"] = df["difference_1"].shift(i)
+        df[f"difference_{i + 1}"] = df["difference_1"].shift(i)
     # Raw sales lags (model can learn non-linear lag relationships)
     for i in range(1, 8):
         df[f"sales_lag_{i}"] = df.sales.shift(i)
@@ -197,9 +205,13 @@ def preprocess_time_series_data(
 
     # Scale numerical features (all diff, rolling, lag, and cyclical columns)
     num_cols = [
-        c for c in df.columns
-        if c.startswith("difference_") or c.startswith("moving_average_")
-        or c.startswith("sales_lag_") or c.endswith("_sin") or c.endswith("_cos")
+        c
+        for c in df.columns
+        if c.startswith("difference_")
+        or c.startswith("moving_average_")
+        or c.startswith("sales_lag_")
+        or c.endswith("_sin")
+        or c.endswith("_cos")
     ]
     scaler = StandardScaler()
     scaler.fit(df[num_cols])
@@ -212,7 +224,9 @@ def preprocess_time_series_data(
         pickle.dump(scaler, f)
 
     meta = {
-        "feature_cols": [c for c in df.columns if c not in {"product_id", "sales", "dates"}],
+        "feature_cols": [
+            c for c in df.columns if c not in {"product_id", "sales", "dates"}
+        ],
         "num_cols": num_cols,
         "cat_cols": cat_cols,
     }
@@ -299,7 +313,8 @@ def train_xgboost_forecaster(
         y_train, y_val = y[train_idx], y[val_idx]
 
         model.fit(
-            X_train, y_train,
+            X_train,
+            y_train,
             eval_set=[(X_train, y_train), (X_val, y_val)],
             verbose=False,
         )
@@ -387,9 +402,17 @@ def forecast_next_7_days(
         row = {}
         for col in feature_cols:
             if col.startswith("difference_month"):
-                row[col] = sales_series[-1] - sales_series[-29] if len(sales_series) >= 29 else last_features.get(col, 0.0)
+                row[col] = (
+                    sales_series[-1] - sales_series[-29]
+                    if len(sales_series) >= 29
+                    else last_features.get(col, 0.0)
+                )
             elif col.startswith("difference_year"):
-                row[col] = sales_series[-1] - sales_series[-367] if len(sales_series) >= 367 else last_features.get(col, 0.0)
+                row[col] = (
+                    sales_series[-1] - sales_series[-367]
+                    if len(sales_series) >= 367
+                    else last_features.get(col, 0.0)
+                )
             elif col.startswith("difference_"):
                 # Recompute lag features from the sales series
                 idx = int(col.split("_")[1])  # e.g. difference_1 -> 1
@@ -423,11 +446,17 @@ def forecast_next_7_days(
             elif col == "month_cos":
                 row[col] = float(np.cos(2 * np.pi * future_date.month / 12))
             elif col.startswith("day_of_week_"):
-                row[col] = 1.0 if int(col.split("_")[-1]) == future_date.day_of_week else 0.0
+                row[col] = (
+                    1.0 if int(col.split("_")[-1]) == future_date.day_of_week else 0.0
+                )
             elif col.startswith("day_of_year_"):
-                row[col] = 1.0 if int(col.split("_")[-1]) == future_date.day_of_year else 0.0
+                row[col] = (
+                    1.0 if int(col.split("_")[-1]) == future_date.day_of_year else 0.0
+                )
             elif col.startswith("quarter_"):
-                row[col] = 1.0 if int(col.split("_")[-1]) == future_date.quarter else 0.0
+                row[col] = (
+                    1.0 if int(col.split("_")[-1]) == future_date.quarter else 0.0
+                )
             elif col.startswith("month_"):
                 row[col] = 1.0 if int(col.split("_")[-1]) == future_date.month else 0.0
             elif col.startswith("year_"):
@@ -454,7 +483,9 @@ def forecast_next_7_days(
     forecast_df.to_csv(forecast_output_csv, index=False)
 
     total = forecast_df["sales"].sum()
-    daily = "\n".join(f"  {r.dates.date()}  ->  {r.sales:.2f} Kg" for _, r in forecast_df.iterrows())
+    daily = "\n".join(
+        f"  {r.dates.date()}  ->  {r.sales:.2f} Kg" for _, r in forecast_df.iterrows()
+    )
 
     return (
         f"7-day forecast generated.\n"
@@ -477,7 +508,7 @@ def create_forecast_plot(
     1. **Full view** — entire sales history + 7-day forecast.
     2. **Zoom view** — last 7 days of actuals + 7-day forecast (detail).
 
-    The output directory (plots/) is created automatically if it does 
+    The output directory (plots/) is created automatically if it does
     not exist. The zoom view is saved alongside as '*_zoom.png'.
 
     Args:
@@ -489,6 +520,7 @@ def create_forecast_plot(
         Confirmation message with both file paths.
     """
     import matplotlib
+
     matplotlib.use("Agg")  # non-interactive backend — avoids tkinter errors
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
@@ -500,10 +532,27 @@ def create_forecast_plot(
 
     # Plot 1: Full history + forecast
     fig1, ax1 = plt.subplots(figsize=(12, 5))
-    ax1.plot(raw["dates"], raw["sales"], color="#00b4d8", linewidth=1.0, label="Sales History")
-    ax1.plot(forecast["dates"], forecast["sales"], color="#e63946",
-             linewidth=2, linestyle="--", marker="o", label="7-Day Forecast")
-    ax1.set_title("Chocolate Sales — 7-Day Forecast (Full History)", fontsize=14, fontweight="bold")
+    ax1.plot(
+        raw["dates"],
+        raw["sales"],
+        color="#00b4d8",
+        linewidth=1.0,
+        label="Sales History",
+    )
+    ax1.plot(
+        forecast["dates"],
+        forecast["sales"],
+        color="#e63946",
+        linewidth=2,
+        linestyle="--",
+        marker="o",
+        label="7-Day Forecast",
+    )
+    ax1.set_title(
+        "Chocolate Sales — 7-Day Forecast (Full History)",
+        fontsize=14,
+        fontweight="bold",
+    )
     ax1.set_xlabel("Date")
     ax1.set_ylabel("Sales (Kg)")
     ax1.legend(loc="upper left")
@@ -522,16 +571,31 @@ def create_forecast_plot(
     raw_zoom = raw[raw["dates"] >= pd.Timestamp(zoom_start)]
 
     fig2, ax2 = plt.subplots(figsize=(10, 5))
-    ax2.plot(raw_zoom["dates"], raw_zoom["sales"], color="#00b4d8",
-             linewidth=2, marker="s", label="Last 7 Days (Actual)")
-    ax2.plot(forecast["dates"], forecast["sales"], color="#e63946",
-             linewidth=2, linestyle="--", marker="o", label="Next 7 Days (Forecast)")
+    ax2.plot(
+        raw_zoom["dates"],
+        raw_zoom["sales"],
+        color="#00b4d8",
+        linewidth=2,
+        marker="s",
+        label="Last 7 Days (Actual)",
+    )
+    ax2.plot(
+        forecast["dates"],
+        forecast["sales"],
+        color="#e63946",
+        linewidth=2,
+        linestyle="--",
+        marker="o",
+        label="Next 7 Days (Forecast)",
+    )
     # Connect last actual to first forecast with a dotted line
     bridge_x = [raw_zoom["dates"].iloc[-1], forecast["dates"].iloc[0]]
     bridge_y = [raw_zoom["sales"].iloc[-1], forecast["sales"].iloc[0]]
     ax2.plot(bridge_x, bridge_y, color="gray", linewidth=1, linestyle=":", alpha=0.6)
 
-    ax2.set_title("Chocolate Sales — Last 7 Days vs Next 7 Days", fontsize=14, fontweight="bold")
+    ax2.set_title(
+        "Chocolate Sales — Last 7 Days vs Next 7 Days", fontsize=14, fontweight="bold"
+    )
     ax2.set_xlabel("Date")
     ax2.set_ylabel("Sales (Kg)")
     ax2.legend(loc="upper left")
@@ -578,7 +642,14 @@ def generate_final_report(
 
     # Copy artifacts (including zoom plot)
     zoom_path = plot_path.replace(".png", "_zoom.png")
-    for src in [dataset_csv, forecast_csv, plot_path, zoom_path, model_path, preprocessed_csv]:
+    for src in [
+        dataset_csv,
+        forecast_csv,
+        plot_path,
+        zoom_path,
+        model_path,
+        preprocessed_csv,
+    ]:
         if os.path.exists(src):
             shutil.copy2(src, folder)
 
@@ -700,7 +771,7 @@ def fetch_webpage(url: str, max_chars: int = 12000) -> str:
     """
     Fetches a webpage and returns its main text content as Markdown.
 
-    The page is downloaded, parsed with BeautifulSoup, and converted 
+    The page is downloaded, parsed with BeautifulSoup, and converted
     to readable Markdown.  Content is truncated if it exceeds `max_chars`.
 
     Args:
@@ -734,10 +805,14 @@ def fetch_webpage(url: str, max_chars: int = 12000) -> str:
     soup = BeautifulSoup(resp.text, "html.parser")
 
     # Strip non-content elements
-    for tag in soup(["script", "style", "nav", "footer", "header", "aside", "noscript"]):
+    for tag in soup(
+        ["script", "style", "nav", "footer", "header", "aside", "noscript"]
+    ):
         tag.decompose()
 
-    title = soup.title.string.strip() if soup.title and soup.title.string else "No title"
+    title = (
+        soup.title.string.strip() if soup.title and soup.title.string else "No title"
+    )
 
     # Try to extract the main content area, fall back to full body
     main = soup.find("main") or soup.find("article") or soup.body
@@ -750,6 +825,7 @@ def fetch_webpage(url: str, max_chars: int = 12000) -> str:
 
     # Collapse whitespace
     import re
+
     body_md = re.sub(r"\n{3,}", "\n\n", body_md)
     body_md = re.sub(r"[ \t]+", " ", body_md)
 
@@ -802,7 +878,9 @@ def generate_research_report(
 
     # Extract all URLs from the findings text
     url_pattern = re.compile(r"https?://[^\s)>]+")
-    urls = list(dict.fromkeys(url_pattern.findall(findings)))  # deduplicated, order-preserving
+    urls = list(
+        dict.fromkeys(url_pattern.findall(findings))
+    )  # deduplicated, order-preserving
 
     lines = [
         f"# Research Report: {topic}",
