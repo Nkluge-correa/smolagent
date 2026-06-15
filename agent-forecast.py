@@ -12,9 +12,8 @@ Usage:
 """
 
 import argparse
+import contextlib
 import sys
-
-from utils import load_memory_for_task, make_code_agent, setup_environment
 
 from tools import (
     create_forecast_plot,
@@ -25,6 +24,12 @@ from tools import (
     read_memory,
     train_xgboost_forecaster,
     update_memory,
+)
+from utils import (
+    load_memory_for_task,
+    make_code_agent,
+    save_session_trace,
+    setup_environment,
 )
 
 FORECAST_TOOLS = [
@@ -123,10 +128,28 @@ if __name__ == "__main__":
     try:
         # Always inject persistent memory into the task before running
         task_with_memory = load_memory_for_task(args.prompt)
-        result = runner.run(task_with_memory)
-        print(f"\n🎉 Agent result: {result}")
+        run_result = runner.run(task_with_memory, return_full_result=True)
+        print(f"\n🎉 Agent result: {run_result.output}")
+
+        # Save the full session trace to traces/
+        save_session_trace(
+            agent=runner,
+            task=args.prompt,
+            backend=args.backend,
+            state=run_result.state,
+            output=run_result.output,
+        )
     except Exception as e:
         if "interrupted" in str(e).lower():
             print("\n🛑 Agent was interrupted by user.")
+            # Try to save a partial trace with whatever steps were taken
+            with contextlib.suppress(Exception):
+                save_session_trace(
+                    agent=runner,
+                    task=args.prompt,
+                    backend=args.backend,
+                    state="interrupted",
+                    output="[interrupted]",
+                )
             sys.exit(0)
         raise

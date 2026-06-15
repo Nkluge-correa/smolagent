@@ -129,7 +129,7 @@ Trains an `XGBRegressor` on the preprocessed features using **time-series cross-
 |-------------------------|---------|---------------------------|---------------------------------|
 | `preprocessed_csv`      | `str`   | `'data/preprocessed.csv'` | Path to preprocessed CSV        |
 | `model_output_path`     | `str`   | `'model/forecaster.pkl'`  | Where to save the trained model |
-| `n_estimators`          | `int`   | `2000`                    | Number of boosting rounds       |
+| `n_estimators`          | `int`   | `1000`                    | Number of boosting rounds       |
 | `max_depth`             | `int`   | `6`                       | Maximum tree depth              |
 | `learning_rate`         | `float` | `0.03`                    | Learning rate                   |
 | `early_stopping_rounds` | `int`   | `80`                      | Early stopping patience         |

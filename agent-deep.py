@@ -15,16 +15,22 @@ Usage:
 
 import argparse
 import asyncio
+import contextlib
 import sys
 import warnings
 
-from utils import load_memory_for_task, make_code_agent, setup_environment
 from tools import (
     fetch_webpage,
     generate_research_report,
     read_memory,
     update_memory,
     web_search,
+)
+from utils import (
+    load_memory_for_task,
+    make_code_agent,
+    save_session_trace,
+    setup_environment,
 )
 
 DEEP_RESEARCH_TOOLS = [
@@ -122,11 +128,29 @@ if __name__ == "__main__":
     # Run the agent on the task
     try:
         task_with_memory = load_memory_for_task(args.prompt)
-        result = runner.run(task_with_memory)
-        print(f"\n🎉 Research complete:\n{result}")
+        run_result = runner.run(task_with_memory, return_full_result=True)
+        print(f"\n🎉 Research complete:\n{run_result.output}")
+
+        # Save the full session trace to traces/
+        save_session_trace(
+            agent=runner,
+            task=args.prompt,
+            backend=args.backend,
+            state=run_result.state,
+            output=run_result.output,
+        )
     except Exception as e:
         if "interrupted" in str(e).lower():
             print("\n🛑 Agent was interrupted by user.")
+            # Try to save a partial trace with whatever steps were taken
+            with contextlib.suppress(Exception):
+                save_session_trace(
+                    agent=runner,
+                    task=args.prompt,
+                    backend=args.backend,
+                    state="interrupted",
+                    output="[interrupted]",
+                )
             sys.exit(0)
         raise
     finally:

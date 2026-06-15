@@ -10,12 +10,17 @@ Contents:
     - `on_plan_created`             -> Step callback to display the plan and ask the user to approve or reject it.
     - `remind_memory_on_plan`       -> Step callback to remind the agent to checkpoint memory after planning.
     - `remind_memory_on_complete`   -> Step callback to nudge the agent to persist learnings after task completion.
+    - `save_session_trace`          -> Save the full agentic trace as a JSON file in the traces/ directory.
     - `make_code_agent`             -> Factory function to create a CodeAgent with the right model and tools based on the selected backend.
 """
 
+import json
 import os
+import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 from smolagents import CodeAgent, FinalAnswerStep, LiteLLMModel, PlanningStep
@@ -25,6 +30,9 @@ from tools import MAX_MEMORY_CHARS, MEMORY_FILE, MEMORY_INSTRUCTIONS
 
 # Directory where skill folders live (e.g., skills/forecast/, skills/research/)
 SKILLS_DIR = Path(__file__).parent / "skills"
+
+# Directory where session traces are saved as JSON files
+TRACES_DIR = Path(__file__).parent / "traces"
 
 
 def load_skill(name: str) -> str:
@@ -42,15 +50,11 @@ def load_skill(name: str) -> str:
     skill_path = SKILLS_DIR / name / "SKILL.md"
     if not skill_path.exists():
         available = sorted(
-            d.name
-            for d in SKILLS_DIR.iterdir()
-            if d.is_dir() and (d / "SKILL.md").exists()
+            d.name for d in SKILLS_DIR.iterdir() if d.is_dir() and (d / "SKILL.md").exists()
         )
         listing = ", ".join(available) if available else "(none found)"
         raise FileNotFoundError(
-            f"Skill '{name}' not found. "
-            f"Available skills: {listing}. "
-            f"Looked in: {skill_path}"
+            f"Skill '{name}' not found. Available skills: {listing}. Looked in: {skill_path}"
         )
     return skill_path.read_text().strip()
 
@@ -102,7 +106,7 @@ def setup_environment() -> EnvConfig:
     openai_api_key = os.getenv("OPENAI_API_KEY")
 
     if not deepseek_api_key and not openai_api_key:
-        raise EnvironmentError(
+        raise OSError(
             "No API keys found. Please set at least one of DEEPSEEK_API_KEY "
             "or OPENAI_API_KEY in your .env file."
         )
@@ -137,8 +141,7 @@ def _build_model(env: EnvConfig, backend: str) -> LiteLLMModel:
     elif backend == "openai":
         if not env.openai_api_key:
             raise RuntimeError(
-                "OPENAI_API_KEY not found. "
-                "Create a .env file with: OPENAI_API_KEY=your-key-here"
+                "OPENAI_API_KEY not found. Create a .env file with: OPENAI_API_KEY=your-key-here"
             )
         return LiteLLMModel(
             model_id=env.openai_model_id,
@@ -174,15 +177,106 @@ def on_plan_created(memory_step, agent):
 def remind_memory_on_plan(memory_step, agent):
     """After a planning step, remind the agent to checkpoint its state."""
     if isinstance(memory_step, PlanningStep):
-        print(
-            "\n🧠  Memory: consider calling `update_memory()` to checkpoint progress.\n"
-        )
+        print("\n🧠  Memory: consider calling `update_memory()` to checkpoint progress.\n")
 
 
 def remind_memory_on_complete(memory_step, agent):
     """After the final answer, nudge the agent to persist learnings to MEMORY.md."""
     if isinstance(memory_step, FinalAnswerStep):
         print("\n💾  Task complete — persist learnings with `update_memory()`.\n")
+
+
+def save_session_trace(
+    agent: CodeAgent,
+    task: str,
+    backend: str,
+    state: str = "success",
+    output: Any = None,
+    extra_metadata: dict[str, Any] | None = None,
+) -> Path:
+    """Save the full agentic trace from an agent run as a timestamped JSON file.
+
+    The trace includes:
+      - Metadata (session ID, timestamp, backend, agent config)
+      - The original task
+      - Final output and run state
+      - Full step-by-step trace from agent memory (model inputs/outputs,
+        tool calls, observations, errors)
+      - Token usage statistics per step and total
+      - Timing information (start, end, duration)
+
+    Args:
+        agent:     The CodeAgent instance after a run (or partial run).
+        task:      The original task string.
+        backend:   The LLM backend used ('openai' or 'deepseek').
+        state:     Final state — 'success', 'max_steps_error', or 'interrupted'.
+        output:    Final output from the agent (if available).
+        extra_metadata: Optional extra key-value pairs to include.
+
+    Returns:
+        The Path to the saved trace file.
+    """
+    TRACES_DIR.mkdir(parents=True, exist_ok=True)
+
+    session_id = uuid.uuid4().hex[:12]
+    now = datetime.now(UTC)
+    timestamp = now.strftime("%Y-%m-%dT%H%M%SZ")
+    filename = f"trace-{timestamp}-{session_id}.json"
+    filepath = TRACES_DIR / filename
+
+    # Gather token usage totals from memory steps
+    total_input_tokens = 0
+    total_output_tokens = 0
+    per_step_tokens: list[dict[str, Any]] = []
+
+    for step in agent.memory.steps:
+        tu = getattr(step, "token_usage", None)
+        if tu is not None:
+            total_input_tokens += getattr(tu, "input_tokens", 0) or 0
+            total_output_tokens += getattr(tu, "output_tokens", 0) or 0
+            per_step_tokens.append(
+                {
+                    "step": getattr(step, "step_number", "?"),
+                    "input_tokens": getattr(tu, "input_tokens", 0),
+                    "output_tokens": getattr(tu, "output_tokens", 0),
+                }
+            )
+
+    # Gather step dicts — use succinct steps to avoid huge model_input_messages
+    # unless the trace is small enough; full_steps can be very large.
+    try:
+        steps_data = agent.memory.get_full_steps()
+    except Exception:
+        steps_data = []
+
+    trace: dict[str, Any] = {
+        "session_id": session_id,
+        "timestamp": now.isoformat(),
+        "backend": backend,
+        "model_id": (
+            agent.model.model_id if hasattr(agent.model, "model_id") else str(agent.model)
+        ),
+        "agent_type": type(agent).__name__,
+        "max_steps": agent.max_steps,
+        "planning_interval": getattr(agent, "planning_interval", None),
+        "task": task,
+        "state": state,
+        "output": str(output) if output is not None else None,
+        "total_input_tokens": total_input_tokens,
+        "total_output_tokens": total_output_tokens,
+        "per_step_token_usage": per_step_tokens,
+        "num_steps": len(agent.memory.steps),
+        "steps": steps_data,
+    }
+
+    if extra_metadata:
+        trace["metadata"] = extra_metadata
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(trace, f, indent=2, ensure_ascii=False, default=str)
+
+    print(f"\n📝 Session trace saved -> {filepath} ({filepath.stat().st_size:,} bytes)")
+    return filepath
 
 
 def make_code_agent(
@@ -209,7 +303,7 @@ def make_code_agent(
         skill:             Optional skill name to load from skills/<name>/SKILL.md
                            and inject into the agent's instructions.
         executor_timeout:  Max seconds per tool execution step.  smolagents
-                           defaults to 30 s — we raise it to 120 s. Set to None to 
+                           defaults to 30 s — we raise it to 120 s. Set to None to
                            disable the timeout entirely.
     """
     model = _build_model(env, backend)
@@ -220,26 +314,21 @@ def make_code_agent(
         skill_content = load_skill(skill)
         instructions_parts.append(f"## Loaded Skill — {skill}\n\n{skill_content}\n")
         line_count = len(skill_content.splitlines())
-        print(
-            f"📘 Skill '{skill}' loaded "
-            f"({len(skill_content):,} chars, {line_count} lines)"
-        )
+        print(f"📘 Skill '{skill}' loaded ({len(skill_content):,} chars, {line_count} lines)")
     instructions_parts.append(MEMORY_INSTRUCTIONS)
     instructions = "\n\n---\n\n".join(instructions_parts)
 
-    kwargs: dict = dict(
-        tools=tools if tools is not None else [],
-        model=model,
-        additional_authorized_imports=(
-            additional_authorized_imports
-            if additional_authorized_imports is not None
-            else []
+    kwargs = {
+        "tools": tools if tools is not None else [],
+        "model": model,
+        "additional_authorized_imports": (
+            additional_authorized_imports if additional_authorized_imports is not None else []
         ),
-        stream_outputs=True,  # because it looks cooler!
-        max_steps=max_steps,
-        instructions=instructions,
-        executor_kwargs={"timeout_seconds": executor_timeout},
-    )
+        "stream_outputs": True,  # because it looks cooler!
+        "max_steps": max_steps,
+        "instructions": instructions,
+        "executor_kwargs": {"timeout_seconds": executor_timeout},
+    }
 
     if with_planning:
         kwargs["planning_interval"] = planning_interval
