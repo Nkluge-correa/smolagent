@@ -182,7 +182,7 @@ test-results/
 # Repository-specific ignores
 MEMORY.md
 data
-model
+model*
 plots
 report*
 traces

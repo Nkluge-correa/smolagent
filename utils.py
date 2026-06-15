@@ -39,7 +39,11 @@ TRACES_DIR = Path(__file__).parent / "traces"
 # Default system prompt file: loaded automatically by make_code_agent().
 # Edit this file to customize the agent's system prompt while keeping all
 # Jinja2 placeholders ({{tools}}, {{authorized_imports}}, etc.) intact.
-SYSTEM_FILE = Path(__file__).parent / "SYSTEM.yaml"
+EXECUTOR_FILE = Path(__file__).parent / "prompts" / "EXECUTOR.yaml"
+
+# Planner-specific prompt: a simplified system prompt for the planner agent
+# (which has NO tools).  Loaded automatically by make_planner_agent().
+PLANNER_FILE = Path(__file__).parent / "prompts" / "PLANNER.yaml"
 
 
 def load_skill(name: str) -> str:
@@ -69,7 +73,7 @@ def load_skill(name: str) -> str:
 def load_system_prompt(path: Path | str | None = None) -> dict[str, Any]:
     """Load prompt templates from a YAML file.
 
-    By default, loads from SYSTEM.yaml in the repo root.  Pass a custom
+    By default, loads from `prompts/EXECUTOR.yaml` in the repo root.  Pass a custom
     path to load a different prompt template file.
 
     The returned dict has the same shape as smolagents' PromptTemplates
@@ -78,7 +82,7 @@ def load_system_prompt(path: Path | str | None = None) -> dict[str, Any]:
 
     Args:
         path: Path to a YAML file containing prompt templates.
-              If None, uses the default SYSTEM.yaml.
+              If None, uses the default `prompts/EXECUTOR.yaml`.
 
     Returns:
         A dict of prompt templates ready to pass to CodeAgent.
@@ -87,7 +91,7 @@ def load_system_prompt(path: Path | str | None = None) -> dict[str, Any]:
         FileNotFoundError: If the specified file does not exist.
         yaml.YAMLError: If the file is not valid YAML.
     """
-    file_path = Path(path) if path else SYSTEM_FILE
+    file_path = Path(path) if path else EXECUTOR_FILE
     if not file_path.exists():
         raise FileNotFoundError(
             f"System prompt file not found: {file_path}\n"
@@ -342,7 +346,7 @@ def make_planner_agent(
         skill:             Optional skill name to load and inject into the
                            planner's instructions.
         prompt_templates:  Optional custom prompt templates.  If None, loaded
-                           from SYSTEM.yaml.
+                           from PLANNER.yaml (a no-tools planning prompt).
         instructions:      Optional extra instructions appended to the planner's
                            system prompt.
 
@@ -352,9 +356,11 @@ def make_planner_agent(
     model = _build_model(env, backend)
 
     if prompt_templates is None:
-        prompt_templates = load_system_prompt()
+        prompt_templates = load_system_prompt(PLANNER_FILE)
 
-    # Build planner-specific instructions
+    # Build planner-specific instructions (skill + any extra instructions).
+    # The planner's system prompt (PLANNER.yaml) already teaches the correct
+    # output pattern — we don't need to repeat it here.
     parts: list[str] = []
     if skill:
         skill_content = load_skill(skill)
@@ -373,7 +379,7 @@ def make_planner_agent(
         prompt_templates=prompt_templates,
         max_steps=max_steps,
         instructions=planner_instructions,
-        stream_outputs=True,
+        stream_outputs=False,
     )
 
 
@@ -414,7 +420,7 @@ def make_code_agent(
     model = _build_model(env, backend)
 
     if prompt_templates is None:
-        prompt_templates = load_system_prompt()
+        prompt_templates = load_system_prompt(EXECUTOR_FILE)
 
     # Build instructions: skill content (if any), then memory instructions
     instructions_parts = []
@@ -435,7 +441,7 @@ def make_code_agent(
         additional_authorized_imports=(
             additional_authorized_imports if additional_authorized_imports is not None else []
         ),
-        stream_outputs=True,
+        stream_outputs=False,
         max_steps=max_steps,
         instructions=instructions,
         executor_kwargs={"timeout_seconds": executor_timeout},

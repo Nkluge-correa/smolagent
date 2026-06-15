@@ -51,6 +51,9 @@ Both agents use a **two-agent architecture**: a lightweight **Planner** agent (n
 
 ```
 smolagent/
+├── prompts/                # Prompts for system instructions and planning
+│   ├── EXECUTOR.yaml       # System prompt for the Executor agent (with tools)
+│   └── PLANNER.yaml        # System prompt for the Planner agent (no tools)
 ├── skills/                 # Skill instruction manuals injected into the agent
 │   ├── forecast/
 │   │   └── SKILL.md        # Forecast pipeline guide
@@ -64,7 +67,6 @@ smolagent/
 ├── MEMORY.md               # Persistent agent memory across runs (not committed)
 ├── pyproject.toml          # Project metadata & dependencies
 ├── README.md               # Documentation (this file)
-├── SYSTEM.yaml             # System instructions for Planner and Executor agents
 ├── tools.py                # All custom tools (both agents)
 └── utils.py                # Shared utilities (env config, agent factories, etc.)
 ```
@@ -137,7 +139,7 @@ Both agents use a `MEMORY.md` file that persists across runs (max 2500 character
 
 ## Skills
 
-Skills are **instruction manuals** written in Markdown that guide the agent through a domain-specific pipeline. They describe *what* each tool does, its parameters, and the recommended execution order — without duplicating the Python implementations (which live in `tools.py`).
+Skills are **instruction manuals** written in Markdown that guide the agent through a domain-specific pipeline. They describe *what* each tool does, its parameters, and the recommended execution order without duplicating the Python implementations (which live in `tools.py`).
 
 A skill is loaded with `--skill <name>` and injected into the agent's system instructions. This gives the agent a structured mental model of the task without needing every detail in the user prompt.
 
@@ -193,14 +195,14 @@ python agent-forecast.py --timeout 180
 ```
 
 The forecast agent will:
-1. **Plan** — a separate Planner agent creates a step-by-step plan (you approve it before execution)
-2. **Execute** — a separate Executor agent carries out the plan:
-   - **Download** — fetches `AiresPucrs/time-series-data` from the Hub
-   - **Preprocess** — caps outliers, engineers time/lag/rolling features, one-hot encodes, standard-scales
-   - **Train** — fits an XGBRegressor with 5-fold TimeSeriesSplit CV
-   - **Forecast** — predicts the next 7 days of sales
-   - **Plot** — saves full-history and zoomed-in forecast plots
-   - **Report** — bundles everything into `report-YYYY-MM-DD/` with a `report.md`
+1. **Plan**: a separate Planner agent creates a step-by-step plan (you approve it before execution)
+2. **Execute**: a separate Executor agent carries out the plan:
+   - **Download**: fetches `AiresPucrs/time-series-data` from the Hub
+   - **Preprocess**: caps outliers, engineers time/lag/rolling features, one-hot encodes, standard-scales
+   - **Train**: fits an XGBRegressor with 5-fold TimeSeriesSplit CV
+   - **Forecast**: predicts the next 7 days of sales
+   - **Plot**: saves full-history and zoomed-in forecast plots
+   - **Report**: bundles everything into `report-YYYY-MM-DD/` with a `report.md`
 
 Use `--no-plan` to skip the Planner and run the Executor directly.
 
@@ -232,12 +234,12 @@ python agent-deep.py --timeout 60
 ```
 
 The deep research agent will:
-1. **Plan** — a separate Planner agent breaks the question into search subtasks and a research strategy (you approve it before execution)
-2. **Execute** — a separate Executor agent carries out the plan:
-   - **Search** — queries DuckDuckGo for relevant sources
-   - **Fetch** — retrieves full page content from the most promising results
-   - **Synthesize** — cross-references sources and produces a structured report
-   - **Report** — saves a dated Markdown report with key findings, citations, and methodology
+1. **Plan**: a separate Planner agent breaks the question into search subtasks and a research strategy (you approve it before execution)
+2. **Execute**: a separate Executor agent carries out the plan:
+   - **Search**: queries DuckDuckGo for relevant sources
+   - **Fetch**: retrieves full page content from the most promising results
+   - **Synthesize**: cross-references sources and produces a structured report
+   - **Report**: saves a dated Markdown report with key findings, citations, and methodology
 
 Use `--no-plan` to skip the Planner and run the Executor directly.
 
