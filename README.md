@@ -49,19 +49,21 @@ Only the key for the backend you intend to use is required.
 
 ```
 smolagent/
-├── pyproject.toml        # Project metadata & dependencies
-├── agent-forecast.py     # Sales forecasting agent
-├── agent-deep.py         # Deep research agent
-├── tools.py              # All custom tools (both agents)
-├── utils.py              # Shared utilities (env config, agent factory, callbacks, skill loader)
-├── skills/               # Skill instruction manuals injected into the agent
+├── skills/                 # Skill instruction manuals injected into the agent
 │   ├── forecast/
-│   │   └── SKILL.md      # Forecast pipeline guide
+│   │   └── SKILL.md        # Forecast pipeline guide
 │   └── research/
-│       └── SKILL.md      # Deep research pipeline guide
-├── .env                  # API key configuration (not committed)
-├── MEMORY.md             # Persistent agent memory across runs (not committed)
-└── README.md             # Documentation (this file)
+│       └── SKILL.md        # Deep research pipeline guide
+|── traces/                 # Where agent execution traces are saved (not committed)
+├── .env                    # API key configuration (not committed)
+├── .pre-commit-config.yaml # Pre-commit hooks for code quality
+├── agent-forecast.py       # Sales forecasting agent
+├── agent-deep.py           # Deep research agent
+├── MEMORY.md               # Persistent agent memory across runs (not committed)
+├── pyproject.toml          # Project metadata & dependencies
+├── README.md               # Documentation (this file)
+├── tools.py                # All custom tools (both agents)
+└── utils.py                # Shared utilities (env config, agent factory, callbacks, skill loader)
 ```
 
 ### Forecast Pipeline
@@ -237,3 +239,6 @@ The deep research agent will:
 | `--skill NAME`          | Load a skill manual from `skills/<NAME>/SKILL.md`     | none                       |
 | `--timeout N`           | Max seconds per tool execution step (0 = no limit)    | 120                        |
 
+### Session Traces
+
+Every run automatically saves a full execution trace to `traces/trace-<timestamp>-<id>.json`. The trace includes the task, final output, run state, timing, token usage per step, and the complete step-by-step agent memory (model messages, tool calls, observations, errors). Traces are also saved on interruption (`Ctrl+C`) so partial runs are never lost.
