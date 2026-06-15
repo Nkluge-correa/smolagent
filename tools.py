@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 from smolagents import tool
 
-# Persistent memory — configuration constants for the memory tools below
+# Persistent memory: configuration constants for the memory tools below
 # I.e., `read_memory` and `update_memory`
 MEMORY_FILE = Path("MEMORY.md")
 MAX_MEMORY_CHARS = 2500
@@ -93,11 +93,9 @@ def update_memory(new_entry: str) -> str:
     new_block = f"\n\n## {now}\n{new_entry.strip()}"
     combined = (existing + new_block).strip()
 
-    # Enforce the size limit — trim oldest content first
+    # Enforce the size limit: trim oldest content first
     if len(combined) > MAX_MEMORY_CHARS:
-        combined = (
-            "...[older entries trimmed]...\n" + combined[-(MAX_MEMORY_CHARS - 50) :]
-        )
+        combined = "...[older entries trimmed]...\n" + combined[-(MAX_MEMORY_CHARS - 50) :]
 
     MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
     MEMORY_FILE.write_text(combined + "\n")
@@ -120,8 +118,9 @@ def download_dataset_from_hub(
     Returns:
         A success message with the number of rows saved, or an error message.
     """
-    from datasets import load_dataset
     import os
+
+    from datasets import load_dataset
 
     os.makedirs(os.path.dirname(output_csv) or ".", exist_ok=True)
 
@@ -129,7 +128,9 @@ def download_dataset_from_hub(
         dataset = load_dataset(dataset_path, split=split)
         df = dataset.to_pandas()
         df.to_csv(output_csv, index=False)
-        return f"Successfully downloaded '{dataset_path}' ({len(df)} rows) -> saved to '{output_csv}'."
+        return (
+            f"Successfully downloaded '{dataset_path}' ({len(df)} rows) -> saved to '{output_csv}'."
+        )
     except Exception as e:
         return f"Error downloading '{dataset_path}': {e}"
 
@@ -224,9 +225,7 @@ def preprocess_time_series_data(
         pickle.dump(scaler, f)
 
     meta = {
-        "feature_cols": [
-            c for c in df.columns if c not in {"product_id", "sales", "dates"}
-        ],
+        "feature_cols": [c for c in df.columns if c not in {"product_id", "sales", "dates"}],
         "num_cols": num_cols,
         "cat_cols": cat_cols,
     }
@@ -280,9 +279,9 @@ def train_xgboost_forecaster(
     Returns:
         Cross-validation RMSE scores and final model info.
     """
+    import xgboost as xgb
     from sklearn.metrics import mean_squared_error
     from sklearn.model_selection import TimeSeriesSplit
-    import xgboost as xgb
 
     df = pd.read_csv(preprocessed_csv)
 
@@ -308,7 +307,7 @@ def train_xgboost_forecaster(
     )
 
     scores = []
-    for fold, (train_idx, val_idx) in enumerate(tss.split(X)):
+    for _, (train_idx, val_idx) in enumerate(tss.split(X)):
         X_train, X_val = X[train_idx], X[val_idx]
         y_train, y_val = y[train_idx], y[val_idx]
 
@@ -446,17 +445,11 @@ def forecast_next_7_days(
             elif col == "month_cos":
                 row[col] = float(np.cos(2 * np.pi * future_date.month / 12))
             elif col.startswith("day_of_week_"):
-                row[col] = (
-                    1.0 if int(col.split("_")[-1]) == future_date.day_of_week else 0.0
-                )
+                row[col] = 1.0 if int(col.split("_")[-1]) == future_date.day_of_week else 0.0
             elif col.startswith("day_of_year_"):
-                row[col] = (
-                    1.0 if int(col.split("_")[-1]) == future_date.day_of_year else 0.0
-                )
+                row[col] = 1.0 if int(col.split("_")[-1]) == future_date.day_of_year else 0.0
             elif col.startswith("quarter_"):
-                row[col] = (
-                    1.0 if int(col.split("_")[-1]) == future_date.quarter else 0.0
-                )
+                row[col] = 1.0 if int(col.split("_")[-1]) == future_date.quarter else 0.0
             elif col.startswith("month_"):
                 row[col] = 1.0 if int(col.split("_")[-1]) == future_date.month else 0.0
             elif col.startswith("year_"):
@@ -505,8 +498,8 @@ def create_forecast_plot(
     """
     Creates two matplotlib PNG figures showing the forecast:
 
-    1. **Full view** — entire sales history + 7-day forecast.
-    2. **Zoom view** — last 7 days of actuals + 7-day forecast (detail).
+    1. Full view: entire sales history + 7-day forecast.
+    2. Zoom view: last 7 days of actuals + 7-day forecast (detail).
 
     The output directory (plots/) is created automatically if it does
     not exist. The zoom view is saved alongside as '*_zoom.png'.
@@ -521,9 +514,9 @@ def create_forecast_plot(
     """
     import matplotlib
 
-    matplotlib.use("Agg")  # non-interactive backend — avoids tkinter errors
-    import matplotlib.pyplot as plt
+    matplotlib.use("Agg")  # non-interactive backend (avoids tkinter errors)
     import matplotlib.dates as mdates
+    import matplotlib.pyplot as plt
 
     raw = pd.read_csv(original_csv)
     raw["dates"] = pd.to_datetime(raw["dates"])
@@ -593,9 +586,7 @@ def create_forecast_plot(
     bridge_y = [raw_zoom["sales"].iloc[-1], forecast["sales"].iloc[0]]
     ax2.plot(bridge_x, bridge_y, color="gray", linewidth=1, linestyle=":", alpha=0.6)
 
-    ax2.set_title(
-        "Chocolate Sales — Last 7 Days vs Next 7 Days", fontsize=14, fontweight="bold"
-    )
+    ax2.set_title("Chocolate Sales — Last 7 Days vs Next 7 Days", fontsize=14, fontweight="bold")
     ax2.set_xlabel("Date")
     ax2.set_ylabel("Sales (Kg)")
     ax2.legend(loc="upper left")
@@ -805,14 +796,10 @@ def fetch_webpage(url: str, max_chars: int = 12000) -> str:
     soup = BeautifulSoup(resp.text, "html.parser")
 
     # Strip non-content elements
-    for tag in soup(
-        ["script", "style", "nav", "footer", "header", "aside", "noscript"]
-    ):
+    for tag in soup(["script", "style", "nav", "footer", "header", "aside", "noscript"]):
         tag.decompose()
 
-    title = (
-        soup.title.string.strip() if soup.title and soup.title.string else "No title"
-    )
+    title = soup.title.string.strip() if soup.title and soup.title.string else "No title"
 
     # Try to extract the main content area, fall back to full body
     main = soup.find("main") or soup.find("article") or soup.body
@@ -843,15 +830,15 @@ def generate_research_report(
 ) -> str:
     """
     Generates a structured, well-formatted markdown research report from the
-    agent's synthesized findings.  Use this at the **end** of a deep-research
+    agent's synthesized findings.  Use this at the end of a deep-research
     task to produce a final, human-readable report.
 
     The report includes:
       - Title and generation date.
-      - A **Key Findings** section (bullet-point summary).
-      - A **Detailed Analysis** section with deeper discussion.
-      - A **Sources & References** section for all cited URLs.
-      - A **Methodology** section describing how the research was conducted.
+      - A Key Findings section (bullet-point summary).
+      - A Detailed Analysis section with deeper discussion.
+      - A Sources & References section for all cited URLs.
+      - A Methodology section describing how the research was conducted.
 
     Args:
         topic:       The research question or topic (e.g. 'Recent advances in
@@ -878,9 +865,7 @@ def generate_research_report(
 
     # Extract all URLs from the findings text
     url_pattern = re.compile(r"https?://[^\s)>]+")
-    urls = list(
-        dict.fromkeys(url_pattern.findall(findings))
-    )  # deduplicated, order-preserving
+    urls = list(dict.fromkeys(url_pattern.findall(findings)))  # deduplicated, order-preserving
 
     lines = [
         f"# Research Report: {topic}",
@@ -932,7 +917,5 @@ def generate_research_report(
         f.write("\n".join(lines) + "\n")
 
     return (
-        f"Research report saved to '{output_path}'.\n"
-        f"  Topic: {topic}\n"
-        f"  Sources cited: {len(urls)}"
+        f"Research report saved to '{output_path}'.\n  Topic: {topic}\n  Sources cited: {len(urls)}"
     )

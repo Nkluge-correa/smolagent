@@ -47,6 +47,8 @@ Only the key for the backend you intend to use is required.
 
 ## Architecture
 
+Both agents use a **two-agent architecture**: a lightweight **Planner** agent (no tools, pure reasoning) generates a step-by-step plan, the user approves it, and a separate **Executor** agent (with the full tool set) carries it out.
+
 ```
 smolagent/
 ├── skills/                 # Skill instruction manuals injected into the agent
@@ -54,32 +56,35 @@ smolagent/
 │   │   └── SKILL.md        # Forecast pipeline guide
 │   └── research/
 │       └── SKILL.md        # Deep research pipeline guide
-|── traces/                 # Where agent execution traces are saved (not committed)
+├── traces/                 # Where agent execution traces are saved (not committed)
 ├── .env                    # API key configuration (not committed)
 ├── .pre-commit-config.yaml # Pre-commit hooks for code quality
-├── agent-forecast.py       # Sales forecasting agent
-├── agent-deep.py           # Deep research agent
+├── agent-forecast.py       # Sales forecasting (Planner → Executor)
+├── agent-deep.py           # Deep research (Planner → Executor)
 ├── MEMORY.md               # Persistent agent memory across runs (not committed)
 ├── pyproject.toml          # Project metadata & dependencies
 ├── README.md               # Documentation (this file)
+├── SYSTEM.yaml             # System instructions for Planner and Executor agents
 ├── tools.py                # All custom tools (both agents)
-└── utils.py                # Shared utilities (env config, agent factory, callbacks, skill loader)
+└── utils.py                # Shared utilities (env config, agent factories, etc.)
 ```
 
 ### Forecast Pipeline
 
 ```mermaid
 flowchart LR
-    User["👤 User"] -->|"Task"| Planner["📋 Planner"]
-    Planner -->|"Plan approved"| Agent["🤖 CodeAgent"]
-    Agent -->|"generate code"| LLM["🧠 LLM (OpenAI / DeepSeek)"]
-    LLM -->|"Python code"| Agent
-    Agent --> T1["📥 download_dataset"]
-    Agent --> T2["🔧 preprocess"]
-    Agent --> T3["🏋️ train_xgboost"]
-    Agent --> T4["🔮 forecast_7_days"]
-    Agent --> T5["📊 create_plot"]
-    Agent --> T6["📁 generate_report"]
+    User["👤 User"] -->|"Task"| Planner["🧠 Planner Agent\n(no tools)"]
+    Planner -->|"Generated Plan"| Approve{"✅ Approve?"}
+    Approve -->|"yes"| Executor["🤖 Executor Agent\n(with tools)"]
+    Approve -->|"no"| Stop["❌ Stop"]
+    Executor -->|"generate code"| LLM["🧠 LLM"]
+    LLM -->|"Python code"| Executor
+    Executor --> T1["📥 download_dataset"]
+    Executor --> T2["🔧 preprocess"]
+    Executor --> T3["🏋️ train_xgboost"]
+    Executor --> T4["🔮 forecast_7_days"]
+    Executor --> T5["📊 create_plot"]
+    Executor --> T6["📁 generate_report"]
     T6 --> Report["report-YYYY-MM-DD/"]
 ```
 
@@ -87,12 +92,14 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    User["👤 User"] -->|"Question"| Planner["📋 Planner"]
-    Planner -->|"Plan approved"| Agent["🤖 CodeAgent"]
-    Agent -->|"generate code"| LLM["🧠 LLM (OpenAI / DeepSeek)"]
-    LLM -->|"Python code"| Agent
-    Agent --> S1["🔍 web_search"]
-    Agent --> S2["📄 fetch_webpage"]
+    User["👤 User"] -->|"Question"| Planner["🧠 Planner Agent\n(no tools)"]
+    Planner -->|"Research Plan"| Approve{"✅ Approve?"}
+    Approve -->|"yes"| Executor["🤖 Executor Agent\n(with tools)"]
+    Approve -->|"no"| Stop["❌ Stop"]
+    Executor -->|"generate code"| LLM["🧠 LLM"]
+    LLM -->|"Python code"| Executor
+    Executor --> S1["🔍 web_search"]
+    Executor --> S2["📄 fetch_webpage"]
     S1 --> S2
     S2 --> S3["📝 generate_research_report"]
     S3 --> Report["reports/research_report_*.md"]
@@ -186,13 +193,16 @@ python agent-forecast.py --timeout 180
 ```
 
 The forecast agent will:
-1. **Plan** — creates a plan (you approve it before execution)
-2. **Download** — fetches `AiresPucrs/time-series-data` from the Hub
-3. **Preprocess** — caps outliers, engineers time/lag/rolling features, one-hot encodes, standard-scales
-4. **Train** — fits an XGBRegressor with 5-fold TimeSeriesSplit CV
-5. **Forecast** — predicts the next 7 days of sales
-6. **Plot** — saves full-history and zoomed-in forecast plots
-7. **Report** — bundles everything into `report-YYYY-MM-DD/` with a `report.md`
+1. **Plan** — a separate Planner agent creates a step-by-step plan (you approve it before execution)
+2. **Execute** — a separate Executor agent carries out the plan:
+   - **Download** — fetches `AiresPucrs/time-series-data` from the Hub
+   - **Preprocess** — caps outliers, engineers time/lag/rolling features, one-hot encodes, standard-scales
+   - **Train** — fits an XGBRegressor with 5-fold TimeSeriesSplit CV
+   - **Forecast** — predicts the next 7 days of sales
+   - **Plot** — saves full-history and zoomed-in forecast plots
+   - **Report** — bundles everything into `report-YYYY-MM-DD/` with a `report.md`
+
+Use `--no-plan` to skip the Planner and run the Executor directly.
 
 ### Deep Research Agent
 
@@ -222,20 +232,22 @@ python agent-deep.py --timeout 60
 ```
 
 The deep research agent will:
-1. **Plan** — breaks the question into search subtasks
-2. **Search** — queries DuckDuckGo for relevant sources
-3. **Fetch** — retrieves full page content from the most promising results
-4. **Synthesize** — cross-references sources and produces a structured report
-5. **Report** — saves a dated Markdown report with key findings, citations, and methodology
+1. **Plan** — a separate Planner agent breaks the question into search subtasks and a research strategy (you approve it before execution)
+2. **Execute** — a separate Executor agent carries out the plan:
+   - **Search** — queries DuckDuckGo for relevant sources
+   - **Fetch** — retrieves full page content from the most promising results
+   - **Synthesize** — cross-references sources and produces a structured report
+   - **Report** — saves a dated Markdown report with key findings, citations, and methodology
+
+Use `--no-plan` to skip the Planner and run the Executor directly.
 
 ### Common Options
 
 | Flag                    | Description                                           | Default                    |
 |-------------------------|-------------------------------------------------------|----------------------------|
 | `--backend`             | LLM backend (`openai` or `deepseek`)                  | `openai`                   |
-| `--no-plan`             | Skip the planning step                                | off                        |
-| `--max-steps N`         | Max agent steps                                       | 15 (forecast) / 20 (deep)  |
-| `--planning-interval N` | Re-plan every N steps                                 | 1000 (plan only on step 1) |
+| `--no-plan`             | Skip the Planner agent (run Executor directly)        | off                        |
+| `--max-steps N`         | Max executor steps                                    | 15 (forecast) / 20 (deep)  |
 | `--skill NAME`          | Load a skill manual from `skills/<NAME>/SKILL.md`     | none                       |
 | `--timeout N`           | Max seconds per tool execution step (0 = no limit)    | 120                        |
 

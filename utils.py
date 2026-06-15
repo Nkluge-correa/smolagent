@@ -4,27 +4,29 @@ Utility helpers for the smolagent.
 Contents:
     - `load_skill`                  -> Load SKILL.md content from a named skill folder.
     - `load_memory_for_task`        -> Prepend persistent memory content to the task prompt.
+    - `load_system_prompt`          -> Load prompt templates from SYSTEM.yaml (or a custom path).
     - `EnvConfig`                   -> Dataclass to hold environment configuration loaded from .env.
     - `setup_environment`           -> Load environment variables and return an `EnvConfig` dataclass.
     - `_build_model`                -> Internal function to create a LiteLLMModel based on the selected backend and environment config.
-    - `on_plan_created`             -> Step callback to display the plan and ask the user to approve or reject it.
-    - `remind_memory_on_plan`       -> Step callback to remind the agent to checkpoint memory after planning.
+    - `approve_plan`                -> Display a plan and ask the user to approve or reject it.
     - `remind_memory_on_complete`   -> Step callback to nudge the agent to persist learnings after task completion.
     - `save_session_trace`          -> Save the full agentic trace as a JSON file in the traces/ directory.
-    - `make_code_agent`             -> Factory function to create a CodeAgent with the right model and tools based on the selected backend.
+    - `make_planner_agent`          -> Factory for a lightweight planning agent (no tools, just reasoning).
+    - `make_code_agent`             -> Factory for the executor agent (with tools, no built-in planning).
 """
 
 import json
 import os
+import sys
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
 from dotenv import load_dotenv
-from smolagents import CodeAgent, FinalAnswerStep, LiteLLMModel, PlanningStep
-from smolagents.utils import AgentError
+from smolagents import CodeAgent, FinalAnswerStep, LiteLLMModel
 
 from tools import MAX_MEMORY_CHARS, MEMORY_FILE, MEMORY_INSTRUCTIONS
 
@@ -33,6 +35,11 @@ SKILLS_DIR = Path(__file__).parent / "skills"
 
 # Directory where session traces are saved as JSON files
 TRACES_DIR = Path(__file__).parent / "traces"
+
+# Default system prompt file: loaded automatically by make_code_agent().
+# Edit this file to customize the agent's system prompt while keeping all
+# Jinja2 placeholders ({{tools}}, {{authorized_imports}}, etc.) intact.
+SYSTEM_FILE = Path(__file__).parent / "SYSTEM.yaml"
 
 
 def load_skill(name: str) -> str:
@@ -57,6 +64,39 @@ def load_skill(name: str) -> str:
             f"Skill '{name}' not found. Available skills: {listing}. Looked in: {skill_path}"
         )
     return skill_path.read_text().strip()
+
+
+def load_system_prompt(path: Path | str | None = None) -> dict[str, Any]:
+    """Load prompt templates from a YAML file.
+
+    By default, loads from SYSTEM.yaml in the repo root.  Pass a custom
+    path to load a different prompt template file.
+
+    The returned dict has the same shape as smolagents' PromptTemplates
+    TypedDict (system_prompt, planning, managed_agent, final_answer) and
+    can be passed directly to CodeAgent(..., prompt_templates=...).
+
+    Args:
+        path: Path to a YAML file containing prompt templates.
+              If None, uses the default SYSTEM.yaml.
+
+    Returns:
+        A dict of prompt templates ready to pass to CodeAgent.
+
+    Raises:
+        FileNotFoundError: If the specified file does not exist.
+        yaml.YAMLError: If the file is not valid YAML.
+    """
+    file_path = Path(path) if path else SYSTEM_FILE
+    if not file_path.exists():
+        raise FileNotFoundError(
+            f"System prompt file not found: {file_path}\n"
+            f"Create a SYSTEM.yaml file or pass a custom path to load_system_prompt()."
+        )
+    with open(file_path, encoding="utf-8") as f:
+        templates = yaml.safe_load(f)
+    print(f"📋 System prompt loaded from: {file_path}")
+    return templates
 
 
 def load_memory_for_task(task: str) -> str:
@@ -152,32 +192,33 @@ def _build_model(env: EnvConfig, backend: str) -> LiteLLMModel:
         raise ValueError(f"Unknown backend '{backend}'. Choose from: openai, deepseek")
 
 
-def on_plan_created(memory_step, agent):
-    """Step callback: fired after the planner creates a plan.
-    Displays the plan and asks the user to approve or cancel."""
-    if isinstance(memory_step, PlanningStep):
-        plan = memory_step.plan
-        print("\n" + "=" * 60)
-        print("📋  PLAN")
-        print("=" * 60)
-        print(plan)
-        print("=" * 60)
+def approve_plan(plan: str) -> str:
+    """Display a plan and ask the user to approve or reject it.
 
-        while True:
-            choice = input("\nApprove this plan? [Y/n]: ").strip().lower()
-            if choice in ("", "y", "yes"):
-                print("✅ Plan approved. Executing…\n")
-                return
-            elif choice in ("n", "no"):
-                print("❌ Execution cancelled by user.")
-                raise AgentError("Plan rejected by user.", agent.logger)
-            print("Please enter Y or N.")
+    Args:
+        plan: The plan text generated by the planner agent.
 
+    Returns:
+        The plan text if approved.
 
-def remind_memory_on_plan(memory_step, agent):
-    """After a planning step, remind the agent to checkpoint its state."""
-    if isinstance(memory_step, PlanningStep):
-        print("\n🧠  Memory: consider calling `update_memory()` to checkpoint progress.\n")
+    Raises:
+        SystemExit: If the user rejects the plan.
+    """
+    print("\n" + "=" * 60)
+    print("📋  PLAN  (generated by Planner agent)")
+    print("=" * 60)
+    print(plan)
+    print("=" * 60)
+
+    while True:
+        choice = input("\nApprove this plan? [Y/n]: ").strip().lower()
+        if choice in ("", "y", "yes"):
+            print("✅ Plan approved. Handing off to Executor…\n")
+            return plan
+        elif choice in ("n", "no"):
+            print("❌ Plan rejected by user. Exiting.")
+            sys.exit(0)
+        print("Please enter Y or N.")
 
 
 def remind_memory_on_complete(memory_step, agent):
@@ -209,7 +250,7 @@ def save_session_trace(
         agent:     The CodeAgent instance after a run (or partial run).
         task:      The original task string.
         backend:   The LLM backend used ('openai' or 'deepseek').
-        state:     Final state — 'success', 'max_steps_error', or 'interrupted'.
+        state:     Final state: 'success', 'max_steps_error', or 'interrupted'.
         output:    Final output from the agent (if available).
         extra_metadata: Optional extra key-value pairs to include.
 
@@ -242,7 +283,7 @@ def save_session_trace(
                 }
             )
 
-    # Gather step dicts — use succinct steps to avoid huge model_input_messages
+    # Gather step dicts: use `get_succinct_steps` steps if you want to avoid huge model_input_messages
     # unless the trace is small enough; full_steps can be very large.
     try:
         steps_data = agent.memory.get_full_steps()
@@ -279,36 +320,103 @@ def save_session_trace(
     return filepath
 
 
-def make_code_agent(
+def make_planner_agent(
     env: EnvConfig,
     backend: str,
-    with_planning: bool = True,
-    max_steps: int = 15,
-    planning_interval: int = 1000,
-    tools: list | None = None,
-    additional_authorized_imports: list[str] | None = None,
+    max_steps: int = 5,
     skill: str | None = None,
-    executor_timeout: int | None = 120,
+    prompt_templates: dict[str, Any] | None = None,
+    instructions: str | None = None,
 ) -> CodeAgent:
-    """Create a CodeAgent.
+    """Create a lightweight Planner agent: a separate CodeAgent instance
+    whose only job is to reason about the task and produce a step-by-step plan.
+
+    The planner has no tools: it cannot execute anything.  It just thinks
+    and writes a plan.  The plan is then handed to a separate executor agent
+    created by :func:`make_code_agent`.
 
     Args:
         env:               Environment configuration from setup_environment().
         backend:           'openai' or 'deepseek'.
-        with_planning:     Whether to include a planning step.
-        max_steps:         Maximum steps the agent may take.
-        planning_interval: Re-plan every N steps (default 1000 = only on step 1).
-        tools:             Custom tool list.
-        additional_authorized_imports:  Custom import allowlist.
-        skill:             Optional skill name to load from skills/<name>/SKILL.md
-                           and inject into the agent's instructions.
-        executor_timeout:  Max seconds per tool execution step.  smolagents
-                           defaults to 30 s — we raise it to 120 s. Set to None to
-                           disable the timeout entirely.
+        max_steps:         Maximum reasoning steps for the planner (default 5).
+        skill:             Optional skill name to load and inject into the
+                           planner's instructions.
+        prompt_templates:  Optional custom prompt templates.  If None, loaded
+                           from SYSTEM.yaml.
+        instructions:      Optional extra instructions appended to the planner's
+                           system prompt.
+
+    Returns:
+        A CodeAgent configured for planning only (no tools).
     """
     model = _build_model(env, backend)
 
-    # Build instructions — start with skill content (if any), then memory instructions
+    if prompt_templates is None:
+        prompt_templates = load_system_prompt()
+
+    # Build planner-specific instructions
+    parts: list[str] = []
+    if skill:
+        skill_content = load_skill(skill)
+        parts.append(f"## Loaded Skill — {skill}\n\n{skill_content}\n")
+        line_count = len(skill_content.splitlines())
+        print(f"📘 Skill '{skill}' loaded ({len(skill_content):,} chars, {line_count} lines)")
+    if instructions:
+        parts.append(instructions)
+    planner_instructions = "\n\n---\n\n".join(parts) if parts else None
+
+    print(f"🧠 Planner agent  |  backend: {backend}  |  max plan steps: {max_steps}")
+
+    return CodeAgent(
+        tools=[],  # No tools, planning is pure reasoning
+        model=model,
+        prompt_templates=prompt_templates,
+        max_steps=max_steps,
+        instructions=planner_instructions,
+        stream_outputs=True,
+    )
+
+
+def make_code_agent(
+    env: EnvConfig,
+    backend: str,
+    max_steps: int = 15,
+    tools: list | None = None,
+    additional_authorized_imports: list[str] | None = None,
+    skill: str | None = None,
+    executor_timeout: int | None = 120,
+    prompt_templates: dict[str, Any] | None = None,
+) -> CodeAgent:
+    """Create an Executor CodeAgent: the agent that actually runs tools.
+
+    Unlike the planner, this agent is equipped with the full tool set and
+    can write/execute Python code.  It receives a plan (generated by a
+    separate planner agent) embedded in its task description.
+
+    No built-in planning step: planning is done by a separate
+    :func:`make_planner_agent` instance before this agent runs.
+
+    Args:
+        env:               Environment configuration from setup_environment().
+        backend:           'openai' or 'deepseek'.
+        max_steps:         Maximum steps the agent may take.
+        tools:             Custom tool list.
+        additional_authorized_imports:  Custom import allowlist.
+        skill:             Optional skill name to load and inject.
+        executor_timeout:  Max seconds per tool execution step.  Set to None
+                           to disable the timeout entirely.
+        prompt_templates:  Optional custom prompt templates.  If None, loaded
+                           from SYSTEM.yaml.
+
+    Returns:
+        A CodeAgent configured for execution (with tools, no built-in planning).
+    """
+    model = _build_model(env, backend)
+
+    if prompt_templates is None:
+        prompt_templates = load_system_prompt()
+
+    # Build instructions: skill content (if any), then memory instructions
     instructions_parts = []
     if skill:
         skill_content = load_skill(skill)
@@ -318,27 +426,20 @@ def make_code_agent(
     instructions_parts.append(MEMORY_INSTRUCTIONS)
     instructions = "\n\n---\n\n".join(instructions_parts)
 
-    kwargs = {
-        "tools": tools if tools is not None else [],
-        "model": model,
-        "additional_authorized_imports": (
+    print(f"🤖 Executor agent  |  backend: {backend}  |  max steps: {max_steps}")
+
+    return CodeAgent(
+        tools=tools if tools is not None else [],
+        model=model,
+        prompt_templates=prompt_templates,
+        additional_authorized_imports=(
             additional_authorized_imports if additional_authorized_imports is not None else []
         ),
-        "stream_outputs": True,  # because it looks cooler!
-        "max_steps": max_steps,
-        "instructions": instructions,
-        "executor_kwargs": {"timeout_seconds": executor_timeout},
-    }
-
-    if with_planning:
-        kwargs["planning_interval"] = planning_interval
-        kwargs["step_callbacks"] = {
-            PlanningStep: [on_plan_created, remind_memory_on_plan],
+        stream_outputs=True,
+        max_steps=max_steps,
+        instructions=instructions,
+        executor_kwargs={"timeout_seconds": executor_timeout},
+        step_callbacks={
             FinalAnswerStep: remind_memory_on_complete,
-        }
-    else:
-        kwargs["step_callbacks"] = {
-            FinalAnswerStep: remind_memory_on_complete,
-        }
-
-    return CodeAgent(**kwargs)
+        },
+    )
